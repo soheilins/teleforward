@@ -1,17 +1,39 @@
 import os
-import requests
 import re
+import requests
+import json
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 from datetime import datetime
 
-CHANNEL = os.getenv('TELEGRAM_CHANNEL', 'IranintlTV')
+CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
 OUTPUT_DIR = 'output'
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 IMAGES_DIR = os.path.join(OUTPUT_DIR, 'images')
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
-def fetch_posts():
+STATE_FILE = 'last_id.txt'
+POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r') as f:
+            return f.read().strip()
+    return None
+
+def save_state(last_id):
+    with open(STATE_FILE, 'w') as f:
+        f.write(str(last_id))
+
+def load_posts():
+    if os.path.exists(POSTS_FILE):
+        with open(POSTS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_posts(posts_dict):
+    with open(POSTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(posts_dict, f, ensure_ascii=False, indent=2)
+
+def scrape_new_posts():
     url = f"https://t.me/s/{CHANNEL}"
     headers = {"User-Agent": "Mozilla/5.0"}
     resp = requests.get(url, headers=headers, timeout=15)
@@ -26,10 +48,9 @@ def fetch_posts():
         post_id = data_post.split('/')[-1]
         text_div = msg.find('div', class_='tgme_widget_message_text')
         text = text_div.get_text(strip=True) if text_div else ''
-        # Get date (if available) – fallback to post_id as timestamp
         date_div = msg.find('time', class_='datetime')
         date_str = date_div.get('datetime') if date_div else None
-        # Get image
+        # image
         img_url = None
         photo = msg.find('a', class_='tgme_widget_message_photo_wrap')
         if photo:
@@ -37,14 +58,15 @@ def fetch_posts():
             match = re.search(r'background-image:url\(\'(.*?)\'\)', style)
             if match:
                 img_url = match.group(1)
+        link = f"https://t.me/{data_post}"
         posts.append({
             'id': post_id,
             'text': text,
             'date': date_str,
             'img_url': img_url,
-            'link': f"https://t.me/{data_post}"
+            'link': link
         })
-    # Reverse to oldest first
+    # posts are newest first from the page. Reverse to oldest first.
     posts.reverse()
     return posts
 
@@ -70,52 +92,64 @@ def download_image(img_url, post_id):
         pass
     return None
 
-def generate_html(posts):
-    html_content = f"""<!DOCTYPE html>
+def build_html(all_posts):
+    html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Channel: @{CHANNEL}</title>
+    <title>@{CHANNEL} Archive</title>
     <style>
-        body {{ font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; background: #f0f2f5; }}
-        .post {{ background: white; margin-bottom: 20px; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-        .post-text {{ font-size: 16px; line-height: 1.5; }}
-        .post-image {{ max-width: 100%; margin-top: 10px; border-radius: 4px; }}
-        .post-link {{ font-size: 12px; color: #888; margin-top: 10px; }}
-        hr {{ border: none; border-top: 1px solid #ddd; }}
-        .date {{ color: #666; font-size: 12px; margin-bottom: 5px; }}
+        body {{ font-family: Arial; max-width: 800px; margin: auto; padding: 20px; background: #f0f2f5; }}
+        .post {{ background: white; margin-bottom: 20px; padding: 15px; border-radius: 8px; }}
+        .post-text {{ font-size: 16px; }}
+        .post-image {{ max-width: 100%; margin-top: 10px; }}
+        .date {{ color: gray; font-size: 12px; }}
+        a {{ color: #1e6f9f; }}
     </style>
 </head>
 <body>
-    <h1>📡 @{CHANNEL}</h1>
+    <h1>@{CHANNEL}</h1>
     <p>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 """
-    for post in posts:
-        html_content += f"""
+    for p in all_posts:
+        html += f"""
     <div class="post">
-        <div class="date">{post['date'] or f"Post {post['id']}"}</div>
-        <div class="post-text">{post['text'].replace('\n', '<br>')}</div>
+        <div class="date">{p.get('date', p['id'])}</div>
+        <div class="post-text">{p['text'].replace(chr(10), '<br>')}</div>
 """
-        if post['img_local']:
-            html_content += f'        <img class="post-image" src="{post["img_local"]}" alt="image">\n'
-        html_content += f'        <div class="post-link"><a href="{post["link"]}" target="_blank">View on Telegram</a></div>\n'
-        html_content += '    </div>\n'
-    
-    html_content += '</body></html>'
-    index_path = os.path.join(OUTPUT_DIR, 'index.html')
-    with open(index_path, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-    print(f"HTML generated: {index_path}")
+        if p.get('img_local'):
+            html += f'        <img class="post-image" src="{p["img_local"]}">\n'
+        html += f'        <div><a href="{p["link"]}" target="_blank">View on Telegram</a></div>\n'
+        html += '    </div>\n'
+    html += '</body></html>'
+    with open(os.path.join(OUTPUT_DIR, 'index.html'), 'w', encoding='utf-8') as f:
+        f.write(html)
 
 def main():
-    print("Fetching posts...")
-    posts = fetch_posts()
-    print(f"Found {len(posts)} posts")
-    for p in posts:
+    print("Scraping...")
+    all_posts = scrape_new_posts()
+    if not all_posts:
+        print("No posts found.")
+        return
+    last_id = load_state()
+    new_posts = [p for p in all_posts if not last_id or p['id'] > last_id]  # simple numeric compare
+    if not new_posts:
+        print("No new posts.")
+        return
+    print(f"Found {len(new_posts)} new posts")
+    # Load existing posts from JSON
+    existing = load_posts()
+    for p in new_posts:
         p['img_local'] = download_image(p['img_url'], p['id'])
-    generate_html(posts)
-    print("Done. Output in 'output' folder.")
+        existing[p['id']] = p
+    save_posts(existing)
+    # Build HTML from all posts, sorted by id
+    all_sorted = sorted(existing.values(), key=lambda x: int(x['id']))
+    build_html(all_sorted)
+    # Save state = latest post id
+    save_state(all_posts[-1]['id'])
+    print("Done.")
 
 if __name__ == '__main__':
     main()
