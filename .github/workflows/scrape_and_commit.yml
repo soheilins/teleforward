@@ -1,29 +1,37 @@
-name: Scrape and Commit
+name: Scrape Telegram Channel
 
 on:
-  workflow_dispatch:    # only manual or API trigger
+  workflow_dispatch:    # Allows manual trigger or external API call (e.g., from your laptop script)
+  # schedule:           # Optional: you can also add a cron schedule if needed
+  #   - cron: '*/10 * * * *'
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write    # Needed to commit and push the output folder
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install deps
+
+      - name: Install dependencies
         run: pip install requests beautifulsoup4
+
       - name: Run scraper
         env:
-          CHANNEL: IranintlTV
-        run: python scrape_and_build.py
-      - name: Commit and push
+          CHANNEL: IranintlTV      # Change if you need a different channel
+        run: python scrape_all_messages.py
+
+      - name: Commit and push output
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add output/ last_id.txt
-          git diff --cached --quiet || git commit -m "Update archive"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/ last_id.txt 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Update archive (latest ${{ env.MAX_MESSAGES || '100' }} messages)"
           git push
