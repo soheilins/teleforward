@@ -1,0 +1,31 @@
+name: Scrape Channel and Build HTML
+
+on:
+  workflow_dispatch:    # manual or via API trigger
+  # schedule:           # optional, but you'll use the laptop script instead
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run scraper and build HTML
+        env:
+          TELEGRAM_CHANNEL: IranintlTV
+        run: python scrape_and_build.py
+
+      - name: Deploy to GitHub Pages (or commit)
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./output
+          publish_branch: gh-pages   # store the HTML + images here
