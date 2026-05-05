@@ -2,8 +2,8 @@ name: Forward Telegram to Rubika
 
 on:
   schedule:
-    - cron: '*/10 * * * *'   # every 10 minutes
-  workflow_dispatch:          # manual trigger
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 jobs:
   forward:
@@ -18,7 +18,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install requests feedparser
+        run: pip install requests beautifulsoup4
 
       - name: Run forward script
         env:
@@ -27,10 +27,10 @@ jobs:
           TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
         run: python forward_telegram.py
 
-      - name: Commit state file
+      - name: Commit state file (if changed)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add last_post_id.txt
-          git commit -m "Update last_post_id" || echo "No changes"
+          git diff --cached --quiet || git commit -m "Update last_post_id"
           git push
