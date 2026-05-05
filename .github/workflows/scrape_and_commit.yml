@@ -1,0 +1,29 @@
+name: Scrape and Commit
+
+on:
+  workflow_dispatch:    # only manual or API trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install deps
+        run: pip install requests beautifulsoup4
+      - name: Run scraper
+        env:
+          CHANNEL: IranintlTV
+        run: python scrape_and_build.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add output/ last_id.txt
+          git diff --cached --quiet || git commit -m "Update archive"
+          git push
