@@ -1,25 +1,24 @@
 import os
 import re
+import time
 import requests
-import feedparser
-from datetime import timezone
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 # ========== CONFIGURATION (from GitHub Secrets) ==========
 RUBIKA_TOKEN = os.getenv('RUBIKA_BOT_TOKEN')
-RUBIKA_CHAT_ID = os.getenv('RUBIKA_CHAT_ID')       # single chat ID or comma-separated
+RUBIKA_CHAT_ID = os.getenv('RUBIKA_CHAT_ID')
 TELEGRAM_CHANNEL = os.getenv('TELEGRAM_CHANNEL', 'IranintlTV')
 
 if not RUBIKA_TOKEN or not RUBIKA_CHAT_ID:
     raise Exception("Missing RUBIKA_BOT_TOKEN or RUBIKA_CHAT_ID")
 
-# Support multiple recipients (comma-separated)
 recipients = [cid.strip() for cid in RUBIKA_CHAT_ID.split(',')]
 
-# ========== RUBIKA SEND MESSAGE (same as your working bot) ==========
+# ========== RUBIKA SEND MESSAGE ==========
 SEND_MESSAGE_URL = f"https://botapi.rubika.ir/v3/{RUBIKA_TOKEN}/sendMessage"
 
 def send_rubika_message(chat_id, text):
-    """Send text message to Rubika chat (supports HTML or Markdown)"""
     payload = {"chat_id": chat_id, "text": text}
     try:
         resp = requests.post(SEND_MESSAGE_URL, json=payload, timeout=15)
@@ -41,67 +40,73 @@ def set_last_id(post_id):
     with open(STATE_FILE, 'w') as f:
         f.write(str(post_id))
 
-# ========== FETCH RSS FEED ==========
+# ========== SCRAPE TELEGRAM CHANNEL ==========
 def fetch_new_posts():
-    rss_url = f"https://rsshub.app/telegram/channel/{TELEGRAM_CHANNEL}"
-    feed = feedparser.parse(rss_url)
+    url = f"https://t.me/s/{TELEGRAM_CHANNEL}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
     
-    if not feed.entries:
-        print("No entries found. RSSHub might be down or channel invalid.")
-        return []
-    
-    # Sort by published date (oldest first)
-    entries = sorted(feed.entries, key=lambda e: e.get('published_parsed', 0))
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    messages = soup.find_all('div', class_='tgme_widget_message')
     
     last_id = get_last_id()
-    new_entries = []
-    for entry in entries:
-        entry_id = entry.link   # e.g. https://t.me/IranintlTV/1234
-        if last_id and entry_id == last_id:
+    new_posts = []
+    
+    for msg in messages:
+        data_post = msg.get('data-post')
+        if not data_post:
+            continue
+        # data-post format: "channel_username/12345"
+        post_id = data_post.split('/')[-1]
+        if last_id and post_id == last_id:
             break
-        new_entries.append(entry)
+        
+        # Extract text
+        text_div = msg.find('div', class_='tgme_widget_message_text')
+        text = text_div.get_text(strip=True) if text_div else ''
+        
+        # Extract link
+        link = f"https://t.me/{data_post}"
+        
+        new_posts.append({
+            'id': post_id,
+            'text': text,
+            'link': link
+        })
     
-    return new_entries
+    # Reverse to get oldest first
+    new_posts.reverse()
+    return new_posts
 
-# ========== FORMAT MESSAGE ==========
-def format_message(entry):
-    title = entry.get('title', '')
-    link = entry.link
-    summary = entry.get('summary', '')
-    # Remove HTML tags from summary
-    summary_clean = re.sub('<[^<]+?>', '', summary)
-    # Truncate if too long (Rubika limit ~4000)
-    if len(summary_clean) > 3000:
-        summary_clean = summary_clean[:3000] + '...'
-    
-    msg = f"📢 <b>New from {TELEGRAM_CHANNEL}</b>\n\n"
-    if title:
-        msg += f"<b>{title}</b>\n\n"
-    if summary_clean:
-        msg += f"{summary_clean}\n\n"
-    msg += f"🔗 <a href='{link}'>View original</a>"
+def format_message(post):
+    text = post['text']
+    if len(text) > 3000:
+        text = text[:3000] + '...'
+    msg = f"📢 <b>New from {TELEGRAM_CHANNEL}</b>\n\n{text}\n\n🔗 <a href='{post['link']}'>View original</a>"
     return msg
 
-# ========== MAIN ==========
 def main():
-    print(f"Checking channel: @{TELEGRAM_CHANNEL}")
-    new_posts = fetch_new_posts()
+    print(f"Scraping channel: @{TELEGRAM_CHANNEL}")
+    try:
+        posts = fetch_new_posts()
+    except Exception as e:
+        print(f"Scraping failed: {e}")
+        return
     
-    if not new_posts:
+    if not posts:
         print("No new posts.")
         return
     
-    # Process from oldest to newest
-    for entry in reversed(new_posts):
-        message_text = format_message(entry)
+    for post in posts:
+        message_text = format_message(post)
         for chat_id in recipients:
             send_rubika_message(chat_id, message_text)
-            print(f"Sent to {chat_id}: {entry.link}")
+            print(f"Sent to {chat_id}: {post['link']}")
+        # Update state after each post (optional, but safe)
+        set_last_id(post['id'])
     
-    # Update state with the most recent post's link
-    latest = new_posts[-1]
-    set_last_id(latest.link)
-    print(f"Done. Last ID updated to {latest.link}")
+    print(f"Done. Last ID: {posts[-1]['id']}")
 
 if __name__ == "__main__":
     main()
