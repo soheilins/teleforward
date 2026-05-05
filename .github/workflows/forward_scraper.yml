@@ -1,36 +1,32 @@
-name: Forward Telegram posts to Rubika
+name: Forward Telegram posts (scraper, no API)
 
 on:
   schedule:
-    - cron: '*/10 * * * *'   # every 10 minutes
-  workflow_dispatch:          # manual trigger from GitHub UI
+    - cron: '*/15 * * * *'   # every 15 minutes to avoid IP block
+  workflow_dispatch:
 
 jobs:
-  forward:
+  scrape:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install telethon requests
+        run: pip install requests beautifulsoup4
 
-      - name: Run forward script
+      - name: Run scraper
         env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-          TELEGRAM_PHONE: ${{ secrets.TELEGRAM_PHONE }}
           TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
           RUBIKA_BOT_TOKEN: ${{ secrets.RUBIKA_BOT_TOKEN }}
           RUBIKA_RECIPIENTS: ${{ secrets.RUBIKA_RECIPIENTS }}
-        run: python forward.py
+        run: python scraper.py
 
-      - name: Commit updated state file
+      - name: Commit state file
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
