@@ -9,10 +9,9 @@ jobs:
   forward:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -27,10 +26,8 @@ jobs:
           TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
         run: python forward_telegram.py
 
-      - name: Commit state file (if changed)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add last_post_id.txt
-          git diff --cached --quiet || git commit -m "Update last_post_id"
-          git push
+      - name: Cache last post ID
+        uses: actions/cache@v3
+        with:
+          path: last_id.txt
+          key: last-id-cache
