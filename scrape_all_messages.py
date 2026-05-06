@@ -5,14 +5,18 @@ import requests
 import json
 from bs4 import BeautifulSoup
 from datetime import datetime
+from fpdf import FPDF
+from PIL import Image
+import io
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
-MAX_MESSAGES = 100               # 👈 Change this to how many you want (e.g., 100)
+MAX_MESSAGES = 100               # Number of latest messages to include
 OUTPUT_DIR = 'output'
 IMAGES_DIR = os.path.join(OUTPUT_DIR, 'images')
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
+PDF_FILE = os.path.join(OUTPUT_DIR, 'telegram_archive.pdf')
 POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
 
 def fetch_messages_page(before_id=None):
@@ -53,7 +57,7 @@ def fetch_messages_page(before_id=None):
             'img_url': img_url,
             'link': link
         })
-    return posts   # newest first on the page
+    return posts   # newest first
 
 def download_image(img_url, post_id):
     if not img_url:
@@ -66,57 +70,62 @@ def download_image(img_url, post_id):
     filename = f"{post_id}{ext}"
     filepath = os.path.join(IMAGES_DIR, filename)
     if os.path.exists(filepath):
-        return f"images/{filename}"
+        return filepath
     try:
         r = requests.get(img_url, timeout=10)
         if r.status_code == 200:
             with open(filepath, 'wb') as f:
                 f.write(r.content)
-            return f"images/{filename}"
+            return filepath
     except Exception as e:
         print(f"Image download failed for {post_id}: {e}")
     return None
 
-def build_html(all_posts_sorted):
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@{CHANNEL} – Latest {len(all_posts_sorted)} Posts</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; max-width: 800px; margin: auto; padding: 20px; background: #f0f2f5; }}
-        .post {{ background: white; margin-bottom: 20px; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-        .post-text {{ font-size: 16px; line-height: 1.5; }}
-        .post-image {{ max-width: 100%; margin-top: 10px; border-radius: 4px; }}
-        .date {{ color: #666; font-size: 12px; margin-bottom: 5px; }}
-        hr {{ border: none; border-top: 1px solid #ddd; }}
-        a {{ color: #1e6f9f; }}
-    </style>
-</head>
-<body>
-    <h1>📡 @{CHANNEL} – Latest {len(all_posts_sorted)} Posts</h1>
-    <p>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    <hr>
-"""
-    for p in all_posts_sorted:
-        html += f"""
-    <div class="post">
-        <div class="date">{p.get('date', p['id'])}</div>
-        <div class="post-text">{p['text'].replace(chr(10), '<br>')}</div>
-"""
+def create_pdf(posts):
+    """Generate PDF with all posts (oldest first) and embedded images."""
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    # Title
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, f"Telegram Channel: @{CHANNEL}", ln=1, align='C')
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=1, align='C')
+    pdf.ln(10)
+    
+    # Process posts from oldest to newest (they are already sorted)
+    for p in posts:
+        # Date
+        pdf.set_font("Arial", "I", 9)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(0, 6, p.get('date', f"Post ID: {p['id']}"), ln=1)
+        pdf.set_text_color(0, 0, 0)
+        # Text
+        pdf.set_font("Arial", "", 11)
+        # MultiCell handles line breaks
+        pdf.multi_cell(0, 6, p['text'])
+        pdf.ln(2)
+        # Image
         if p.get('img_local'):
-            html += f'        <img class="post-image" src="{p["img_local"]}" alt="image">\n'
-        html += f'        <div><a href="{p["link"]}" target="_blank">View on Telegram</a></div>\n'
-        html += '    </div>\n'
-    html += '</body></html>'
-    with open(os.path.join(OUTPUT_DIR, 'index.html'), 'w', encoding='utf-8') as f:
-        f.write(html)
-    print(f"HTML built with {len(all_posts_sorted)} posts.")
+            try:
+                # Resize image if needed (max width 180 mm, keep ratio)
+                img_path = p['img_local']
+                pdf.image(img_path, w=pdf.w - 20)
+                pdf.ln(5)
+            except Exception as e:
+                print(f"Could not embed image for post {p['id']}: {e}")
+        # Link to original
+        pdf.set_font("Arial", "U", 8)
+        pdf.set_text_color(0, 0, 255)
+        pdf.cell(0, 6, f"View original: {p['link']}", ln=1, link=p['link'])
+        pdf.set_text_color(0, 0, 0)
+        pdf.ln(8)
+    pdf.output(PDF_FILE)
+    print(f"PDF saved: {PDF_FILE}")
 
 def main():
     print(f"[{datetime.now()}] Fetching up to {MAX_MESSAGES} latest messages from @{CHANNEL}...")
-    all_posts = []           # will hold posts as we fetch them (newest first from each page)
+    all_posts = []
     oldest_id = None
     page_count = 0
 
@@ -125,48 +134,45 @@ def main():
         print(f"Fetching page {page_count} (before={oldest_id})...")
         page_posts = fetch_messages_page(before_id=oldest_id)
         if not page_posts:
-            print("No more messages available. Stopping.")
+            print("No more messages.")
             break
-        print(f"  Got {len(page_posts)} messages on this page.")
+        print(f"  Got {len(page_posts)} messages.")
         all_posts.extend(page_posts)
-        # Find the oldest message ID in this page (smallest numeric id)
         ids_on_page = [int(p['id']) for p in page_posts]
         if ids_on_page:
-            oldest_id = min(ids_on_page)   # for next 'before' request
+            oldest_id = min(ids_on_page)
         else:
             break
-        # Stop if we've reached or exceeded the limit (we'll trim later)
         if len(all_posts) >= MAX_MESSAGES:
-            print(f"Reached limit of {MAX_MESSAGES} messages.")
             break
-        time.sleep(1)   # polite delay
+        time.sleep(1)
 
     if not all_posts:
         print("No posts retrieved.")
         return
 
-    # Remove duplicates (shouldn't happen) and limit to MAX_MESSAGES
-    unique_posts = {}
+    # Remove duplicates and keep only the latest MAX_MESSAGES
+    unique = {}
     for p in all_posts:
-        if p['id'] not in unique_posts:
-            unique_posts[p['id']] = p
-    # Keep only the latest MAX_MESSAGES (based on ID, larger ID = newer)
-    sorted_by_id_desc = sorted(unique_posts.values(), key=lambda x: int(x['id']), reverse=True)
+        unique[p['id']] = p
+    sorted_by_id_desc = sorted(unique.values(), key=lambda x: int(x['id']), reverse=True)
     limited_posts = sorted_by_id_desc[:MAX_MESSAGES]
-    print(f"Collected {len(limited_posts)} unique messages (latest {MAX_MESSAGES}).")
+    print(f"Collected {len(limited_posts)} unique posts (latest {MAX_MESSAGES}).")
 
-    # Download images for the limited posts
+    # Download images for these posts
     for p in limited_posts:
         p['img_local'] = download_image(p['img_url'], p['id'])
 
-    # Save all posts as JSON (optional)
+    # Sort chronologically (oldest first) for PDF
+    sorted_chrono = sorted(limited_posts, key=lambda x: int(x['id']))
+
+    # Generate PDF
+    create_pdf(sorted_chrono)
+
+    # Save metadata (optional)
     with open(POSTS_FILE, 'w', encoding='utf-8') as f:
         json.dump({p['id']: p for p in limited_posts}, f, ensure_ascii=False, indent=2)
-
-    # Sort by ID (oldest first) for chronological display
-    sorted_chrono = sorted(limited_posts, key=lambda x: int(x['id']))
-    build_html(sorted_chrono)
     print("Done.")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
