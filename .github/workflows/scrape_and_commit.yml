@@ -1,15 +1,13 @@
 name: Scrape Telegram Channel
 
 on:
-  workflow_dispatch:    # Allows manual trigger or external API call (e.g., from your laptop script)
-  # schedule:           # Optional: you can also add a cron schedule if needed
-  #   - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # Needed to commit and push the output folder
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -21,17 +19,17 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 fpdf2 Pillow
 
-      - name: Run scraper
+      - name: Run scraper (PDF generation)
         env:
-          CHANNEL: IranintlTV      # Change if you need a different channel
+          CHANNEL: IranintlTV
         run: python scrape_all_messages.py
 
-      - name: Commit and push output
+      - name: Commit and push output folder and PDF
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/ last_id.txt 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "Update archive (latest ${{ env.MAX_MESSAGES || '100' }} messages)"
+          git diff --cached --quiet || git commit -m "Update archive PDF"
           git push
