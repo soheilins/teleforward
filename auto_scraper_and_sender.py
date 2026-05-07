@@ -28,7 +28,7 @@ except Exception as e:
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
-MAX_MESSAGES = 20
+MAX_MESSAGES = 100
 
 # ✅ YOUR CORRECT CHAT_ID (from the test)
 RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
@@ -320,7 +320,7 @@ def main():
 
         elapsed = time.time() - loop_start.timestamp()
         # Wait 30 seconds between iterations
-        sleep_time = max(0, 30 - elapsed)
+        sleep_time = max(0, 60 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f} seconds until next iteration...", flush=True)
             time.sleep(sleep_time)
