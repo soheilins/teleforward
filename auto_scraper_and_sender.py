@@ -2,11 +2,9 @@
 import sys
 import os
 
-# Force flush every print
 sys.stdout.reconfigure(line_buffering=True)
 
 print("=== AUTO SCRAPER STARTING ===", flush=True)
-print("Python version:", sys.version, flush=True)
 
 try:
     import traceback
@@ -32,8 +30,8 @@ except Exception as e:
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
 MAX_MESSAGES = 20
 
-# !!! REPLACE THIS WITH YOUR ACTUAL CHAT_ID (from test) !!!
-RUBIKA_USER_ID = "u0JWE2R02172d15a02bb742a785ac9f8"   # <-- PASTE YOUR CHAT_ID HERE
+# ✅ YOUR CORRECT CHAT_ID (from the test)
+RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
 
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
 if not RUBIKA_TOKEN:
@@ -42,7 +40,6 @@ if not RUBIKA_TOKEN:
 
 print(f"Token present: YES, CHANNEL: {CHANNEL}, USER_ID: {RUBIKA_USER_ID}", flush=True)
 
-# Rubika API endpoints
 BASE_API = f"https://botapi.rubika.ir/v3/{RUBIKA_TOKEN}"
 SEND_MESSAGE_URL = f"{BASE_API}/sendMessage"
 REQUEST_SEND_FILE_URL = f"{BASE_API}/requestSendFile"
@@ -79,7 +76,6 @@ def fetch_messages():
     messages = soup.find_all('div', class_='tgme_widget_message')
     print(f"  📄 Found {len(messages)} message blocks on page", flush=True)
     if not messages:
-        print("  ⚠️ No messages found", flush=True)
         return []
 
     posts = []
@@ -132,10 +128,8 @@ def download_image(img_url, post_id):
                 f.write(r.content)
             print(f"  🖼️ Downloaded image {filename}", flush=True)
             return filepath
-        else:
-            print(f"  ⚠️ Image download failed for {post_id}: HTTP {r.status_code}", flush=True)
     except Exception as e:
-        print(f"  ⚠️ Image download error for {post_id}: {e}", flush=True)
+        print(f"  ⚠️ Image download error: {e}", flush=True)
     return None
 
 def generate_pdf(posts, filename="telegram_archive.pdf"):
@@ -207,7 +201,7 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
                     c.drawImage(img, margin, y - draw_height, width=max_width, height=draw_height, preserveAspectRatio=True)
                     y -= draw_height + 5
                 except Exception as e:
-                    print(f"  ⚠️ Could not embed image for post {p['id']}: {e}", flush=True)
+                    print(f"  ⚠️ Could not embed image: {e}", flush=True)
 
             link_text = f"View original: {p['link']}"
             c.setFont('DejaVu', 8)
@@ -234,7 +228,7 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
         raise
 
 def send_rubika_document(chat_id, file_bytes, filename):
-    print(f"📤 Sending PDF to Rubika user {chat_id}...", flush=True)
+    print(f"📤 Sending PDF to chat_id {chat_id}...", flush=True)
     try:
         req_payload = {"type": "File"}
         resp = requests.post(REQUEST_SEND_FILE_URL, json=req_payload, timeout=10)
@@ -283,13 +277,10 @@ def main():
     print("🤖 AUTO SCRAPER & SENDER STARTED", flush=True)
     print(f"Channel: @{CHANNEL}", flush=True)
     print(f"Max messages per PDF: {MAX_MESSAGES}", flush=True)
-    print(f"Target Rubika user: {RUBIKA_USER_ID}", flush=True)
+    print(f"Target Rubika chat_id: {RUBIKA_USER_ID}", flush=True)
     print(f"Token present: {'YES' if RUBIKA_TOKEN else 'NO'}", flush=True)
     if not RUBIKA_TOKEN:
         print("❌ Missing RUBIKA_TOKEN. Exiting.", flush=True)
-        sys.exit(1)
-    if RUBIKA_USER_ID == "YOUR_CHAT_ID_HERE":
-        print("❌ You forgot to replace YOUR_CHAT_ID_HERE with your actual chat_id!", flush=True)
         sys.exit(1)
     print("="*60, flush=True)
 
@@ -313,6 +304,7 @@ def main():
                 print("🖼️ Downloading images...", flush=True)
                 for p in posts:
                     p['img_local'] = download_image(p['img_url'], p['id'])
+
                 pdf_file = generate_pdf(posts, "telegram_archive.pdf")
                 with open(pdf_file, 'rb') as f:
                     pdf_bytes = f.read()
@@ -327,12 +319,13 @@ def main():
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 300 - elapsed)
+        # Wait 30 seconds between iterations
+        sleep_time = max(0, 30 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f} seconds until next iteration...", flush=True)
             time.sleep(sleep_time)
         else:
-            print("⚠️ Iteration took longer than 5 minutes, starting next immediately.", flush=True)
+            print("⚠️ Iteration took longer than 30 seconds, starting next immediately.", flush=True)
 
     print("\n" + "="*60, flush=True)
     print("🏁 6-hour runtime completed. Exiting gracefully.", flush=True)
