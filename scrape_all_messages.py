@@ -40,7 +40,7 @@ def fetch_messages_page(before_id=None):
         text_div = msg.find('div', class_='tgme_widget_message_text')
         text = text_div.get_text(strip=True) if text_div else ''
         date_div = msg.find('time', class_='datetime')
-        date_str = date_div.get('datetime') if date_div else None
+        date_str = date_div.get('datetime') if date_div else None   # can be None
         # image
         img_url = None
         photo = msg.find('a', class_='tgme_widget_message_photo_wrap')
@@ -86,40 +86,48 @@ def create_pdf(posts):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+    
     # Title
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Telegram Channel: @{CHANNEL}", ln=1, align='C')
-    pdf.set_font("Arial", "", 10)
-    pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=1, align='C')
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, f"Telegram Channel: @{CHANNEL}", new_x='LMARGIN', new_y='NEXT', align='C')
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(10)
     
     # Process posts from oldest to newest (they are already sorted)
     for p in posts:
-        # Date
-        pdf.set_font("Arial", "I", 9)
+        # Date (handle None)
+        date_text = p.get('date')
+        if date_text is None:
+            date_text = "Date unknown"
+        pdf.set_font("Helvetica", "I", 9)
         pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 6, p.get('date', f"Post ID: {p['id']}"), ln=1)
+        pdf.cell(0, 6, date_text, new_x='LMARGIN', new_y='NEXT')
         pdf.set_text_color(0, 0, 0)
+        
         # Text
-        pdf.set_font("Arial", "", 11)
-        # MultiCell handles line breaks
-        pdf.multi_cell(0, 6, p['text'])
+        pdf.set_font("Helvetica", "", 11)
+        text_content = p.get('text', '')
+        if text_content:
+            pdf.multi_cell(0, 6, text_content)
         pdf.ln(2)
+        
         # Image
         if p.get('img_local'):
             try:
-                # Resize image if needed (max width 180 mm, keep ratio)
                 img_path = p['img_local']
                 pdf.image(img_path, w=pdf.w - 20)
                 pdf.ln(5)
             except Exception as e:
                 print(f"Could not embed image for post {p['id']}: {e}")
+        
         # Link to original
-        pdf.set_font("Arial", "U", 8)
+        pdf.set_font("Helvetica", "U", 8)
         pdf.set_text_color(0, 0, 255)
-        pdf.cell(0, 6, f"View original: {p['link']}", ln=1, link=p['link'])
+        pdf.cell(0, 6, f"View original: {p['link']}", new_x='LMARGIN', new_y='NEXT', link=p['link'])
         pdf.set_text_color(0, 0, 0)
         pdf.ln(8)
+    
     pdf.output(PDF_FILE)
     print(f"PDF saved: {PDF_FILE}")
 
