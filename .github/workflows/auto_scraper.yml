@@ -1,0 +1,30 @@
+name: Auto Scraper & Sender
+
+on:
+  workflow_dispatch:       # manual trigger
+  schedule:
+    - cron: '0 */6 * * *'  # automatic every 6 hours (optional)
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 reportlab Pillow arabic-reshaper python-bidi
+
+      - name: Run auto scraper and sender
+        env:
+          RUBIKA_TOKEN: ${{ secrets.RUBIKA_TOKEN }}
+          RUBIKA_USER_ID: ${{ secrets.RUBIKA_USER_ID }}
+          CHANNEL: IranintlTV
+        run: python auto_scraper_and_sender.py
