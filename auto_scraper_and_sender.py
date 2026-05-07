@@ -19,7 +19,7 @@ from bidi.algorithm import get_display
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
 MAX_MESSAGES = 20
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
-RUBIKA_USER_ID = os.environ.get("RUBIKA_USER_ID", "")
+RUBIKA_USER_ID = "u0JWE2R02172d15a02bb742a785ac9f8"   # Hardcoded – your correct user ID
 
 # Rubika API endpoints
 BASE_API = f"https://botapi.rubika.ir/v3/{RUBIKA_TOKEN}"
@@ -46,7 +46,6 @@ def reshape_persian_text(text):
         return text
 
 def fetch_messages():
-    """Fetch latest messages from Telegram channel."""
     print(f"📡 Fetching up to {MAX_MESSAGES} messages from @{CHANNEL}...")
     url = f"https://t.me/s/{CHANNEL}"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -62,7 +61,7 @@ def fetch_messages():
     messages = soup.find_all('div', class_='tgme_widget_message')
     print(f"  📄 Found {len(messages)} message blocks on page")
     if not messages:
-        print("  ⚠️ No messages found (channel may be private or empty)")
+        print("  ⚠️ No messages found")
         return []
 
     posts = []
@@ -90,7 +89,7 @@ def fetch_messages():
             'img_url': img_url,
             'link': link
         })
-        if idx < 3:   # show preview of first few
+        if idx < 3:
             print(f"  - Post {post_id}: {text[:50]}...")
     print(f"  ✅ Collected {len(posts)} posts")
     return posts
@@ -122,7 +121,6 @@ def download_image(img_url, post_id):
     return None
 
 def generate_pdf(posts, filename="telegram_archive.pdf"):
-    """Generate PDF with RTL Persian support."""
     print(f"📄 Generating PDF with {len(posts)} posts...")
     try:
         c = canvas.Canvas(filename, pagesize=A4)
@@ -133,7 +131,6 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
         y = height - margin
         line_height = 14
 
-        # Title
         c.setFont('DejaVu', 16)
         title = reshape_persian_text(f"Telegram Channel: @{CHANNEL}")
         c.drawString(margin, y, title)
@@ -144,7 +141,6 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
         y -= line_height * 2
 
         for p in posts:
-            # Date
             date_text = p.get('date') or "Date unknown"
             date_text = reshape_persian_text(date_text)
             c.setFont('DejaVu', 9)
@@ -153,12 +149,10 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
             y -= line_height
             c.setFillColorRGB(0, 0, 0)
 
-            # Text
             c.setFont('DejaVu', 11)
             text_content = p.get('text', '')
             if text_content:
                 reshaped = reshape_persian_text(text_content)
-                # simple word wrapping
                 words = reshaped.split()
                 line = ""
                 for word in words:
@@ -182,7 +176,6 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
                     y -= line_height
             y -= 4
 
-            # Image
             if p.get('img_local'):
                 try:
                     img = ImageReader(p['img_local'])
@@ -198,7 +191,6 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
                 except Exception as e:
                     print(f"  ⚠️ Could not embed image for post {p['id']}: {e}")
 
-            # Link
             link_text = f"View original: {p['link']}"
             c.setFont('DejaVu', 8)
             c.setFillColorRGB(0, 0, 0.8)
@@ -224,11 +216,10 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
         raise
 
 def send_rubika_document(chat_id, file_bytes, filename):
-    """Send PDF to Rubika user with detailed logging."""
+    """Send PDF to Rubika user (catches errors but does not retry)."""
     print(f"📤 Sending PDF to Rubika user {chat_id}...")
     try:
         # Step 1: Request upload URL
-        print("  → Requesting upload URL...")
         req_payload = {"type": "File"}
         resp = requests.post(REQUEST_SEND_FILE_URL, json=req_payload, timeout=10)
         resp.raise_for_status()
@@ -262,13 +253,16 @@ def send_rubika_document(chat_id, file_bytes, filename):
         send_resp.raise_for_status()
         print("  ✅ PDF successfully sent to Rubika")
         return True
+
+    except requests.exceptions.HTTPError as e:
+        print(f"  ❌ HTTP error: {e}")
+        return False
     except Exception as e:
-        print(f"  ❌ Send document error: {e}")
+        print(f"  ❌ Unexpected error: {e}")
         traceback.print_exc()
         return False
 
 def send_rubika_message(chat_id, text):
-    """Send simple text message."""
     payload = {"chat_id": chat_id, "text": text}
     try:
         requests.post(SEND_MESSAGE_URL, json=payload, timeout=10)
@@ -283,13 +277,13 @@ def main():
     print(f"Max messages per PDF: {MAX_MESSAGES}")
     print(f"Target Rubika user: {RUBIKA_USER_ID}")
     print(f"Token present: {'YES' if RUBIKA_TOKEN else 'NO'}")
-    if not RUBIKA_TOKEN or not RUBIKA_USER_ID:
-        print("❌ Missing RUBIKA_TOKEN or RUBIKA_USER_ID. Exiting.")
+    if not RUBIKA_TOKEN:
+        print("❌ Missing RUBIKA_TOKEN. Exiting.")
         sys.exit(1)
     print("="*60)
 
     start_time = time.time()
-    MAX_RUNTIME = 5.9 * 3600   # 5h54m, a bit less than 6h
+    MAX_RUNTIME = 5.9 * 3600   # 5h54m
 
     iteration = 0
     while time.time() - start_time < MAX_RUNTIME:
@@ -301,20 +295,15 @@ def main():
         print(f"{'='*60}")
 
         try:
-            # 1. Fetch messages
             posts = fetch_messages()
             if not posts:
                 print("⚠️ No posts retrieved. Skipping this iteration.")
             else:
-                # 2. Download images (optional)
                 print("🖼️ Downloading images...")
                 for p in posts:
                     p['img_local'] = download_image(p['img_url'], p['id'])
 
-                # 3. Generate PDF
                 pdf_file = generate_pdf(posts, "telegram_archive.pdf")
-
-                # 4. Send PDF
                 with open(pdf_file, 'rb') as f:
                     pdf_bytes = f.read()
                 success = send_rubika_document(RUBIKA_USER_ID, pdf_bytes, "telegram_archive.pdf")
@@ -327,9 +316,8 @@ def main():
             traceback.print_exc()
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
-        # Wait until 5 minutes have passed since start of this iteration
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 30 - elapsed)
+        sleep_time = max(0, 300 - elapsed)   # 5 minutes – change this if you want shorter interval
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f} seconds until next iteration...")
             time.sleep(sleep_time)
