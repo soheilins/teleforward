@@ -3,7 +3,6 @@ import sys
 import traceback
 import time
 import re
-import io
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -17,9 +16,17 @@ from bidi.algorithm import get_display
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
-MAX_MESSAGES = 20
+MAX_MESSAGES = 20   # you can change this to 10, 30, etc.
+
+# --------------------------------------------
+# REPLACE THIS WITH YOUR CORRECT CHAT_ID (from test)
+# The chat_id is printed when you ran test_rubika_final.py
+# It usually starts with c0... or g0... or a number
+# --------------------------------------------
+RUBIKA_USER_ID = "YOUR_CHAT_ID_HERE"   # <-- PASTE YOUR CHAT_ID HERE
+
+# Bot token from GitHub secret
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
-RUBIKA_USER_ID = "u0JWE2R02172d15a02bb742a785ac9f8"   # Hardcoded – your correct user ID
 
 # Rubika API endpoints
 BASE_API = f"https://botapi.rubika.ir/v3/{RUBIKA_TOKEN}"
@@ -280,6 +287,9 @@ def main():
     if not RUBIKA_TOKEN:
         print("❌ Missing RUBIKA_TOKEN. Exiting.")
         sys.exit(1)
+    if RUBIKA_USER_ID == "YOUR_CHAT_ID_HERE":
+        print("❌ You forgot to replace YOUR_CHAT_ID_HERE with your actual chat_id!")
+        sys.exit(1)
     print("="*60)
 
     start_time = time.time()
@@ -317,7 +327,7 @@ def main():
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 10 - elapsed)   # 5 minutes – change this if you want shorter interval
+        sleep_time = max(0, 300 - elapsed)   # 5 minutes – change this if you want shorter interval
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f} seconds until next iteration...")
             time.sleep(sleep_time)
