@@ -11,7 +11,8 @@ jobs:
     timeout-minutes: 360     # 6 hours
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,4 +27,4 @@ jobs:
         env:
           RUBIKA_TOKEN: ${{ secrets.RUBIKA_TOKEN }}
           CHANNEL: IranintlTV
-        run: python auto_scraper_and_sender.py
+        run: python -u auto_scraper_and_sender.py
