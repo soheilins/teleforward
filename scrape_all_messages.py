@@ -5,7 +5,12 @@ import requests
 import json
 from bs4 import BeautifulSoup
 from datetime import datetime
-from fpdf import FPDF
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
 import arabic_reshaper
 from bidi.algorithm import get_display
 
@@ -23,14 +28,15 @@ POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
 SYSTEM_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 def reshape_persian_text(text):
-    """Reshape and reorder Persian/Arabic text for proper display."""
+    """Reshape Persian/Arabic text and apply bidi for correct RTL display."""
     if not text:
         return text
-    # Reshape the text (connects characters)
-    reshaped = arabic_reshaper.reshape(text)
-    # Apply bidirectional algorithm (sets correct RTL order)
-    bidi_text = get_display(reshaped)
-    return bidi_text
+    try:
+        reshaped = arabic_reshaper.reshape(text)
+        bidi_text = get_display(reshaped)
+        return bidi_text
+    except:
+        return text
 
 def fetch_messages_page(before_id=None):
     url = f"https://t.me/s/{CHANNEL}"
@@ -93,20 +99,26 @@ def download_image(img_url, post_id):
     return None
 
 def create_pdf(posts):
-    pdf = FPDF()
-    pdf.add_page()
+    """Generate PDF with correct RTL Persian/Arabic text using ReportLab."""
+    c = canvas.Canvas(PDF_FILE, pagesize=A4)
+    width, height = A4
+    # Register the Unicode font
+    pdfmetrics.registerFont(TTFont('DejaVu', SYSTEM_FONT_PATH))
+    c.setFont('DejaVu', 10)
     
-    # Use the system's pre-installed DejaVu Sans font
-    pdf.add_font('DejaVu', '', SYSTEM_FONT_PATH, uni=True)
-    pdf.set_font('DejaVu', '', 16)
+    y = height - 20  # start from top
+    line_height = 14
+    margin = 20
     
     # Title
+    c.setFont('DejaVu', 16)
     title = reshape_persian_text(f"Telegram Channel: @{CHANNEL}")
-    pdf.cell(0, 10, title, new_x='LMARGIN', new_y='NEXT', align='C')
-    pdf.set_font('DejaVu', '', 10)
+    c.drawString(margin, y, title)
+    y -= line_height + 5
+    c.setFont('DejaVu', 10)
     date_str = reshape_persian_text(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    pdf.cell(0, 6, date_str, new_x='LMARGIN', new_y='NEXT', align='C')
-    pdf.ln(10)
+    c.drawString(margin, y, date_str)
+    y -= line_height * 2
     
     for p in posts:
         # Date
@@ -114,39 +126,76 @@ def create_pdf(posts):
         if date_text is None:
             date_text = "Date unknown"
         date_text = reshape_persian_text(date_text)
-        pdf.set_font('DejaVu', '', 9)
-        pdf.set_text_color(100, 100, 100)
-        pdf.cell(0, 6, date_text, new_x='LMARGIN', new_y='NEXT')
-        pdf.set_text_color(0, 0, 0)
+        c.setFont('DejaVu', 9)
+        c.setFillColorRGB(0.4, 0.4, 0.4)
+        c.drawString(margin, y, date_text)
+        y -= line_height
+        c.setFillColorRGB(0, 0, 0)
         
-        # Message text
-        pdf.set_font('DejaVu', '', 11)
+        # Message text (may be multi-line)
+        c.setFont('DejaVu', 11)
         text_content = p.get('text', '')
         if text_content:
-            # Reshape each line? multi_cell handles unicode, but we need RTL reshaping
-            # For multi_cell, we can reshape the whole text (it will be displayed correctly if the font supports RTL)
-            # However, multi_cell doesn't reorder characters, so we must pre-reshape.
             reshaped_text = reshape_persian_text(text_content)
-            pdf.multi_cell(0, 6, reshaped_text)
-        pdf.ln(2)
+            # Split into lines that fit the page width
+            lines = []
+            current_line = ""
+            for word in reshaped_text.split():
+                # crude wrapping, but works for RTL because strings are already visual
+                test_line = current_line + (" " if current_line else "") + word
+                if c.stringWidth(test_line, 'DejaVu', 11) < width - 2*margin:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            for line in lines:
+                if y - line_height < margin:
+                    c.showPage()
+                    c.setFont('DejaVu', 11)
+                    y = height - margin
+                c.drawString(margin, y, line)
+                y -= line_height
+        y -= 4  # small gap after text
         
         # Image
         if p.get('img_local'):
             try:
-                pdf.image(p['img_local'], w=pdf.w - 20)
-                pdf.ln(5)
+                img = ImageReader(p['img_local'])
+                img_width, img_height = img.getSize()
+                # Scale image to fit width
+                max_width = width - 2*margin
+                scale = max_width / img_width
+                draw_height = img_height * scale
+                if y - draw_height < margin:
+                    c.showPage()
+                    y = height - margin
+                c.drawImage(img, margin, y - draw_height, width=max_width, height=draw_height, preserveAspectRatio=True)
+                y -= draw_height + 5
             except Exception as e:
                 print(f"Could not embed image for post {p['id']}: {e}")
         
-        # Link (keep English)
+        # Link (English, no reshaping needed)
         link_text = f"View original: {p['link']}"
-        pdf.set_font('DejaVu', '', 8)
-        pdf.set_text_color(0, 0, 255)
-        pdf.cell(0, 6, link_text, new_x='LMARGIN', new_y='NEXT', link=p['link'])
-        pdf.set_text_color(0, 0, 0)
-        pdf.ln(8)
+        c.setFont('DejaVu', 8)
+        c.setFillColorRGB(0, 0, 0.8)
+        if y - line_height < margin:
+            c.showPage()
+            y = height - margin
+            c.setFont('DejaVu', 8)
+        c.drawString(margin, y, link_text)
+        y -= line_height + 8
+        c.setFillColorRGB(0, 0, 0)
+        
+        # New page if needed
+        if y < margin:
+            c.showPage()
+            y = height - margin
+            c.setFont('DejaVu', 11)
     
-    pdf.output(PDF_FILE)
+    c.save()
     print(f"PDF saved: {PDF_FILE}")
 
 def main():
