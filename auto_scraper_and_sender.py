@@ -329,7 +329,7 @@ def main():
 
         # Wait until 5 minutes have passed since start of this iteration
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 300 - elapsed)
+        sleep_time = max(0, 30 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f} seconds until next iteration...")
             time.sleep(sleep_time)
