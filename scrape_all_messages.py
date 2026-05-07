@@ -19,31 +19,42 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 PDF_FILE = os.path.join(OUTPUT_DIR, 'telegram_archive.pdf')
 POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
 
-# Unicode font that supports Persian/Arabic
-UNICODE_FONT_URL_TAR = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/dejavu-fonts-2.37/dejavu-fonts-ttf-2.37.tar.bz2"
+# Reliable working URL for DejaVuSans.ttf
+UNICODE_FONT_URL = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf?raw=true"
 UNICODE_FONT_FILE = "DejaVuSans.ttf"
 
 def download_unicode_font():
-    """Download and extract DejaVuSans.ttf from the official source archive."""
+    """Download DejaVuSans.ttf using the raw GitHub URL with proper LFS handling."""
     if os.path.exists(UNICODE_FONT_FILE):
+        print("Font already exists locally.")
         return
-
-    print("Downloading Unicode font archive...")
+    
+    print("Downloading DejaVuSans.ttf...")
+    headers = {"Accept": "application/octet-stream"}
     try:
-        r = requests.get(UNICODE_FONT_URL_TAR, timeout=30)
-        r.raise_for_status()
-
-        # Open the bz2-compressed tar archive from memory
-        with tarfile.open(fileobj=io.BytesIO(r.content), mode='r:bz2') as tar:
-            # Extract only DejaVuSans.ttf
-            member = tar.getmember("dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf")
-            with tar.extractfile(member) as font_file:
-                with open(UNICODE_FONT_FILE, 'wb') as out_file:
-                    out_file.write(font_file.read())
-
-        print("Font downloaded and extracted successfully.")
+        response = requests.get(UNICODE_FONT_URL, headers=headers, stream=True, timeout=30)
+        response.raise_for_status()
+        
+        # Check if it's an LFS pointer file
+        content = response.text
+        if content.startswith("version https://git-lfs.github.com/spec"):
+            print("Detected LFS pointer, fetching actual file...")
+            # Extract the URL from the pointer file
+            for line in content.split('\n'):
+                if line.startswith("oid sha256:"):
+                    oid = line.split(":")[1].strip()
+                    # Use huggingface CDN which serves LFS files directly
+                    lfs_url = f"https://huggingface.co/spaces/pyodide-demo/self-hosted/resolve/main/fonts/DejaVuSans.ttf"
+                    response = requests.get(lfs_url, stream=True, timeout=30)
+                    response.raise_for_status()
+                    break
+        
+        # Save the font
+        with open(UNICODE_FONT_FILE, 'wb') as f:
+            f.write(response.content)
+        print(f"Font downloaded successfully to {UNICODE_FONT_FILE}")
     except Exception as e:
-        print(f"Failed to download/extract font: {e}")
+        print(f"Failed to download font: {e}")
         raise
 
 def fetch_messages_page(before_id=None):
@@ -97,10 +108,10 @@ def download_image(img_url, post_id):
     if os.path.exists(filepath):
         return filepath
     try:
-        r = requests.get(img_url, timeout=10)
-        if r.status_code == 200:
+        response = requests.get(img_url, timeout=10)
+        if response.status_code == 200:
             with open(filepath, 'wb') as f:
-                f.write(r.content)
+                f.write(response.content)
             return filepath
     except Exception as e:
         print(f"Image download failed for {post_id}: {e}")
