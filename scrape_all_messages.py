@@ -3,10 +3,11 @@ import re
 import time
 import requests
 import json
+import tarfile
+import io
 from bs4 import BeautifulSoup
 from datetime import datetime
 from fpdf import FPDF
-import io
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
@@ -19,22 +20,30 @@ PDF_FILE = os.path.join(OUTPUT_DIR, 'telegram_archive.pdf')
 POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
 
 # Unicode font that supports Persian/Arabic
-UNICODE_FONT_URL = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
+UNICODE_FONT_URL_TAR = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/dejavu-fonts-2.37/dejavu-fonts-ttf-2.37.tar.bz2"
 UNICODE_FONT_FILE = "DejaVuSans.ttf"
 
 def download_unicode_font():
-    """Download DejaVuSans.ttf if not already present."""
+    """Download and extract DejaVuSans.ttf from the official source archive."""
     if os.path.exists(UNICODE_FONT_FILE):
         return
-    print("Downloading Unicode font (DejaVuSans)...")
+
+    print("Downloading Unicode font archive...")
     try:
-        r = requests.get(UNICODE_FONT_URL, timeout=30)
+        r = requests.get(UNICODE_FONT_URL_TAR, timeout=30)
         r.raise_for_status()
-        with open(UNICODE_FONT_FILE, 'wb') as f:
-            f.write(r.content)
-        print("Font downloaded.")
+
+        # Open the bz2-compressed tar archive from memory
+        with tarfile.open(fileobj=io.BytesIO(r.content), mode='r:bz2') as tar:
+            # Extract only DejaVuSans.ttf
+            member = tar.getmember("dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf")
+            with tar.extractfile(member) as font_file:
+                with open(UNICODE_FONT_FILE, 'wb') as out_file:
+                    out_file.write(font_file.read())
+
+        print("Font downloaded and extracted successfully.")
     except Exception as e:
-        print(f"Failed to download font: {e}")
+        print(f"Failed to download/extract font: {e}")
         raise
 
 def fetch_messages_page(before_id=None):
