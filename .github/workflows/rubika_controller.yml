@@ -1,0 +1,36 @@
+name: Rubika Controller Bot
+
+on:
+  schedule:
+    # Runs every 6 hours (adjust times to your preference)
+    - cron: '0 */6 * * *'
+  workflow_dispatch:   # Allows manual start
+
+jobs:
+  rubika-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360   # 6 hours
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache rubika offset
+        uses: actions/cache@v4
+        with:
+          path: rubika_offset.txt
+          key: rubika-offset-cache
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Rubika controller bot
+        env:
+          RUBIKA_TOKEN: ${{ secrets.RUBIKA_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RUBIKA_GITHUB_TOKEN }}
+        run: python rubika_controller.py
