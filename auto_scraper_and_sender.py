@@ -20,7 +20,7 @@ sys.stdout.reconfigure(line_buffering=True)
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
 MAX_MESSAGES = 100
-SORT_OLDEST_FIRST = True               # True = oldest message first in PDF
+SORT_OLDEST_FIRST = True               # True = oldest first
 RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
 
@@ -60,15 +60,16 @@ def fetch_messages():
             url += f"?before={oldest_id}"
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            resp = requests.get(url, headers=headers, timeout=15)
+            resp = requests.get(url, headers=headers, timeout=30)  # increased timeout
             resp.raise_for_status()
         except Exception as e:
-            print(f"  ❌ HTTP error: {e}", flush=True)
+            print(f"  ❌ HTTP error on page {page_count}: {e}", flush=True)
             break
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         messages = soup.find_all('div', class_='tgme_widget_message')
         if not messages:
+            print(f"  ⚠️ No messages on page {page_count}, stopping.", flush=True)
             break
 
         print(f"  📄 Page {page_count}: {len(messages)} messages", flush=True)
@@ -102,6 +103,8 @@ def fetch_messages():
             oldest_id = min(p['id'] for p in page_posts)
             all_posts.extend(page_posts)
             print(f"  ➕ Added {len(page_posts)} (total {len(all_posts)})", flush=True)
+        else:
+            break
         time.sleep(1)
 
     if len(all_posts) > MAX_MESSAGES:
@@ -146,9 +149,10 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
     pdfmetrics.registerFont(TTFont('DejaVu', SYSTEM_FONT_PATH))
     margin = 20
     line_height = 14
-    text_width = width - 2*margin
+    text_width = width - 2 * margin
+    y = height - margin
 
-    def draw_paragraph(text, font_size, is_date=False):
+    def draw_text(text, font_size, is_date=False, link=None):
         nonlocal y
         if is_date:
             c.setFont('DejaVu', 9)
@@ -158,12 +162,43 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
             c.setFillColorRGB(0, 0, 0)
         if not text:
             return
-        # Use multi_cell for automatic line breaking
-        c.multi_cell(text_width, line_height, text, border=0, align='L')
-        y = c.getY()  # update current vertical position
-        c.setY(y)
+        words = text.split()
+        line = ""
+        for word in words:
+            test_line = line + (" " + word if line else word)
+            if c.stringWidth(test_line, 'DejaVu', font_size) < text_width:
+                line = test_line
+            else:
+                if y - line_height < margin:
+                    c.showPage()
+                    y = height - margin
+                    if is_date:
+                        c.setFont('DejaVu', 9)
+                        c.setFillColorRGB(0.4, 0.4, 0.4)
+                    else:
+                        c.setFont('DejaVu', font_size)
+                        c.setFillColorRGB(0, 0, 0)
+                if link:
+                    c.linkURL(link, (margin, y - line_height, margin + c.stringWidth(line, 'DejaVu', font_size), y), relative=1)
+                c.drawString(margin, y, line)
+                y -= line_height
+                line = word
+        if line:
+            if y - line_height < margin:
+                c.showPage()
+                y = height - margin
+                if is_date:
+                    c.setFont('DejaVu', 9)
+                    c.setFillColorRGB(0.4, 0.4, 0.4)
+                else:
+                    c.setFont('DejaVu', font_size)
+                    c.setFillColorRGB(0, 0, 0)
+            if link:
+                c.linkURL(link, (margin, y - line_height, margin + c.stringWidth(line, 'DejaVu', font_size), y), relative=1)
+            c.drawString(margin, y, line)
+            y -= line_height
+        y -= 4
 
-    y = height - margin
     # Title
     c.setFont('DejaVu', 16)
     title = reshape_persian_text(f"Telegram Channel: @{CHANNEL}")
@@ -173,29 +208,18 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
     date_str = reshape_persian_text(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     c.drawString(margin, y, date_str)
     y -= line_height * 2
-    c.setY(y)
 
     for p in posts:
         # Date
         date_text = p.get('date') or "Date unknown"
         date_text = reshape_persian_text(date_text)
-        c.setFont('DejaVu', 9)
-        c.setFillColorRGB(0.4, 0.4, 0.4)
-        c.drawString(margin, y, date_text)
-        y -= line_height
-        c.setY(y)
+        draw_text(date_text, 9, is_date=True)
 
         # Message text
         text_content = p.get('text', '')
         if text_content:
             reshaped = reshape_persian_text(text_content)
-            c.setFont('DejaVu', 11)
-            c.setFillColorRGB(0, 0, 0)
-            c.multi_cell(text_width, line_height, reshaped, border=0, align='L')
-            y = c.getY()
-            c.setY(y)
-            y -= 4
-            c.setY(y)
+            draw_text(reshaped, 11, is_date=False)
 
         # Image
         if p.get('img_local'):
@@ -208,10 +232,8 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
                 if y - draw_height < margin:
                     c.showPage()
                     y = height - margin
-                    c.setY(y)
                 c.drawImage(img, margin, y - draw_height, width=max_width, height=draw_height, preserveAspectRatio=True)
                 y -= draw_height + 5
-                c.setY(y)
             except Exception as e:
                 print(f"  ⚠️ Image embed error: {e}", flush=True)
 
@@ -222,16 +244,12 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
         if y - line_height < margin:
             c.showPage()
             y = height - margin
-            c.setY(y)
         c.drawString(margin, y, link_text)
         y -= line_height + 8
-        c.setY(y)
 
-        # New page if needed
         if y < margin:
             c.showPage()
             y = height - margin
-            c.setY(y)
 
     c.save()
     print(f"  ✅ PDF saved: {filename}", flush=True)
@@ -321,7 +339,7 @@ def main():
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 10 - elapsed)   # 10 seconds interval
+        sleep_time = max(0, 10 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f}s", flush=True)
             time.sleep(sleep_time)
