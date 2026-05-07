@@ -3,8 +3,6 @@ import re
 import time
 import requests
 import json
-import tarfile
-import io
 from bs4 import BeautifulSoup
 from datetime import datetime
 from fpdf import FPDF
@@ -19,43 +17,8 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 PDF_FILE = os.path.join(OUTPUT_DIR, 'telegram_archive.pdf')
 POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
 
-# Reliable working URL for DejaVuSans.ttf
-UNICODE_FONT_URL = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf?raw=true"
-UNICODE_FONT_FILE = "DejaVuSans.ttf"
-
-def download_unicode_font():
-    """Download DejaVuSans.ttf using the raw GitHub URL with proper LFS handling."""
-    if os.path.exists(UNICODE_FONT_FILE):
-        print("Font already exists locally.")
-        return
-    
-    print("Downloading DejaVuSans.ttf...")
-    headers = {"Accept": "application/octet-stream"}
-    try:
-        response = requests.get(UNICODE_FONT_URL, headers=headers, stream=True, timeout=30)
-        response.raise_for_status()
-        
-        # Check if it's an LFS pointer file
-        content = response.text
-        if content.startswith("version https://git-lfs.github.com/spec"):
-            print("Detected LFS pointer, fetching actual file...")
-            # Extract the URL from the pointer file
-            for line in content.split('\n'):
-                if line.startswith("oid sha256:"):
-                    oid = line.split(":")[1].strip()
-                    # Use huggingface CDN which serves LFS files directly
-                    lfs_url = f"https://huggingface.co/spaces/pyodide-demo/self-hosted/resolve/main/fonts/DejaVuSans.ttf"
-                    response = requests.get(lfs_url, stream=True, timeout=30)
-                    response.raise_for_status()
-                    break
-        
-        # Save the font
-        with open(UNICODE_FONT_FILE, 'wb') as f:
-            f.write(response.content)
-        print(f"Font downloaded successfully to {UNICODE_FONT_FILE}")
-    except Exception as e:
-        print(f"Failed to download font: {e}")
-        raise
+# Path to the pre-installed DejaVu Sans font on GitHub Actions Ubuntu runners
+SYSTEM_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 def fetch_messages_page(before_id=None):
     url = f"https://t.me/s/{CHANNEL}"
@@ -108,24 +71,21 @@ def download_image(img_url, post_id):
     if os.path.exists(filepath):
         return filepath
     try:
-        response = requests.get(img_url, timeout=10)
-        if response.status_code == 200:
+        r = requests.get(img_url, timeout=10)
+        if r.status_code == 200:
             with open(filepath, 'wb') as f:
-                f.write(response.content)
+                f.write(r.content)
             return filepath
     except Exception as e:
         print(f"Image download failed for {post_id}: {e}")
     return None
 
 def create_pdf(posts):
-    # Ensure Unicode font is available
-    download_unicode_font()
-    
     pdf = FPDF()
     pdf.add_page()
     
-    # Register the Unicode TrueType font
-    pdf.add_font('DejaVu', '', UNICODE_FONT_FILE, uni=True)
+    # Use the system's pre-installed DejaVu Sans font (supports Persian/Arabic)
+    pdf.add_font('DejaVu', '', SYSTEM_FONT_PATH, uni=True)
     pdf.set_font('DejaVu', '', 16)
     
     # Title
