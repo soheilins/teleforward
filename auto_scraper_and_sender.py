@@ -23,7 +23,7 @@ MAX_MESSAGES = 20   # you can change this to 10, 30, etc.
 # The chat_id is printed when you ran test_rubika_final.py
 # It usually starts with c0... or g0... or a number
 # --------------------------------------------
-RUBIKA_USER_ID = "YOUR_CHAT_ID_HERE"   # <-- PASTE YOUR CHAT_ID HERE
+RUBIKA_USER_ID = "u0JWE2R02172d15a02bb742a785ac9f8"   # <-- PASTE YOUR CHAT_ID HERE
 
 # Bot token from GitHub secret
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
