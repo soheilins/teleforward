@@ -6,6 +6,8 @@ import json
 from bs4 import BeautifulSoup
 from datetime import datetime
 from fpdf import FPDF
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
@@ -19,6 +21,16 @@ POSTS_FILE = os.path.join(OUTPUT_DIR, 'posts.json')
 
 # Path to the pre-installed DejaVu Sans font on GitHub Actions Ubuntu runners
 SYSTEM_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+def reshape_persian_text(text):
+    """Reshape and reorder Persian/Arabic text for proper display."""
+    if not text:
+        return text
+    # Reshape the text (connects characters)
+    reshaped = arabic_reshaper.reshape(text)
+    # Apply bidirectional algorithm (sets correct RTL order)
+    bidi_text = get_display(reshaped)
+    return bidi_text
 
 def fetch_messages_page(before_id=None):
     url = f"https://t.me/s/{CHANNEL}"
@@ -84,14 +96,16 @@ def create_pdf(posts):
     pdf = FPDF()
     pdf.add_page()
     
-    # Use the system's pre-installed DejaVu Sans font (supports Persian/Arabic)
+    # Use the system's pre-installed DejaVu Sans font
     pdf.add_font('DejaVu', '', SYSTEM_FONT_PATH, uni=True)
     pdf.set_font('DejaVu', '', 16)
     
     # Title
-    pdf.cell(0, 10, f"Telegram Channel: @{CHANNEL}", new_x='LMARGIN', new_y='NEXT', align='C')
+    title = reshape_persian_text(f"Telegram Channel: @{CHANNEL}")
+    pdf.cell(0, 10, title, new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.set_font('DejaVu', '', 10)
-    pdf.cell(0, 6, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", new_x='LMARGIN', new_y='NEXT', align='C')
+    date_str = reshape_persian_text(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    pdf.cell(0, 6, date_str, new_x='LMARGIN', new_y='NEXT', align='C')
     pdf.ln(10)
     
     for p in posts:
@@ -99,6 +113,7 @@ def create_pdf(posts):
         date_text = p.get('date')
         if date_text is None:
             date_text = "Date unknown"
+        date_text = reshape_persian_text(date_text)
         pdf.set_font('DejaVu', '', 9)
         pdf.set_text_color(100, 100, 100)
         pdf.cell(0, 6, date_text, new_x='LMARGIN', new_y='NEXT')
@@ -108,7 +123,11 @@ def create_pdf(posts):
         pdf.set_font('DejaVu', '', 11)
         text_content = p.get('text', '')
         if text_content:
-            pdf.multi_cell(0, 6, text_content)
+            # Reshape each line? multi_cell handles unicode, but we need RTL reshaping
+            # For multi_cell, we can reshape the whole text (it will be displayed correctly if the font supports RTL)
+            # However, multi_cell doesn't reorder characters, so we must pre-reshape.
+            reshaped_text = reshape_persian_text(text_content)
+            pdf.multi_cell(0, 6, reshaped_text)
         pdf.ln(2)
         
         # Image
@@ -119,10 +138,11 @@ def create_pdf(posts):
             except Exception as e:
                 print(f"Could not embed image for post {p['id']}: {e}")
         
-        # Link
+        # Link (keep English)
+        link_text = f"View original: {p['link']}"
         pdf.set_font('DejaVu', '', 8)
         pdf.set_text_color(0, 0, 255)
-        pdf.cell(0, 6, f"View original: {p['link']}", new_x='LMARGIN', new_y='NEXT', link=p['link'])
+        pdf.cell(0, 6, link_text, new_x='LMARGIN', new_y='NEXT', link=p['link'])
         pdf.set_text_color(0, 0, 0)
         pdf.ln(8)
     
