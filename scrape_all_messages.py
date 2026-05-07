@@ -16,7 +16,7 @@ from bidi.algorithm import get_display
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
-MAX_MESSAGES = 100
+MAX_MESSAGES = 20
 OUTPUT_DIR = 'output'
 IMAGES_DIR = os.path.join(OUTPUT_DIR, 'images')
 os.makedirs(IMAGES_DIR, exist_ok=True)
