@@ -1,80 +1,94 @@
 import os
-import requests
-import time
 import sys
+import time
+import requests
+import json
 
+# ========== CONFIGURATION ==========
 TOKEN = os.environ.get("RUBIKA_TOKEN")
 if not TOKEN:
-    print("❌ RUBIKA_TOKEN environment variable not set.")
+    print("❌ Error: RUBIKA_TOKEN environment variable not set.")
     sys.exit(1)
 
 BASE_API = f"https://botapi.rubika.ir/v3/{TOKEN}"
 GET_UPDATES_URL = f"{BASE_API}/getUpdates"
 SEND_MESSAGE_URL = f"{BASE_API}/sendMessage"
 
-def get_chat_id_from_user():
-    """Ask user to send a message to the bot, then extract chat_id."""
-    print("📡 Waiting for you to send ANY message to the bot...")
-    print("   (e.g., send /start or just 'hello')")
-    print("   You have 60 seconds.")
-    time.sleep(60)
-
-    payload = {"limit": 1}
-    try:
-        resp = requests.post(GET_UPDATES_URL, json=payload, timeout=10)
-        data = resp.json()
-        if data.get("status") != "OK":
-            print(f"❌ API error: {data}")
-            return None
-
-        updates = data.get("data", {}).get("updates", [])
-        if not updates:
-            print("❌ No updates received. Did you send a message?")
-            return None
-
-        for update in updates:
-            if update.get("type") == "NewMessage":
-                chat_id = update.get("chat_id")
-                print(f"✅ Found your chat_id: {chat_id}")
-                return chat_id
-        print("❌ Found an update, but it was not a new message.")
-        return None
-    except Exception as e:
-        print(f"❌ Exception while fetching updates: {e}")
-        return None
-
-def send_text_message(chat_id, text):
-    """Send a simple text message to the given chat_id."""
+def send_message(chat_id, text):
+    """Send a text message to a chat."""
     payload = {"chat_id": chat_id, "text": text}
     try:
-        r = requests.post(SEND_MESSAGE_URL, json=payload, timeout=10)
-        print(f"HTTP Status: {r.status_code}")
-        print(f"Response JSON: {r.text}")
-        if r.status_code == 200 and r.json().get("status") == "OK":
-            print("✅ Message sent successfully.")
-            return True
-        else:
-            print("❌ Message sending failed.")
-            return False
+        resp = requests.post(SEND_MESSAGE_URL, json=payload, timeout=10)
+        data = resp.json()
+        print(f"Send response: {json.dumps(data, indent=2)}")
+        return data.get("status") == "OK"
     except Exception as e:
-        print(f"❌ Exception: {e}")
+        print(f"Send error: {e}")
         return False
 
+def get_chat_id_from_update(limit=10, timeout_seconds=60):
+    """Poll for updates and return the first chat_id found."""
+    print(f"🔄 Polling for updates (timeout: {timeout_seconds}s)...")
+    print("📱 Please send any message to the bot RIGHT NOW (e.g., /start or 'hello').")
+    start_time = time.time()
+    offset_id = None
+
+    while time.time() - start_time < timeout_seconds:
+        payload = {"limit": limit}
+        if offset_id:
+            payload["offset_id"] = offset_id
+
+        try:
+            resp = requests.post(GET_UPDATES_URL, json=payload, timeout=10)
+            data = resp.json()
+            # print(f"DEBUG: {json.dumps(data, indent=2)}")  # uncomment for debugging
+
+            if data.get("status") != "OK":
+                print(f"⚠️ API status not OK: {data}")
+                time.sleep(2)
+                continue
+
+            updates = data.get("data", {}).get("updates", [])
+            if updates:
+                # Process the first update
+                upd = updates[0]
+                offset_id = data["data"].get("next_offset_id")  # for future polling
+                chat_id = upd.get("chat_id")
+                if chat_id:
+                    print(f"✅ Found chat_id: {chat_id}")
+                    return chat_id
+                else:
+                    print("⚠️ Update has no chat_id, skipping...")
+            else:
+                print("⏳ No updates yet, waiting...")
+        except Exception as e:
+            print(f"Polling error: {e}")
+        time.sleep(2)
+
+    print("❌ Timeout: No update received. Did you send a message?")
+    return None
+
 def main():
-    # Step 1: Get the correct chat_id
-    chat_id = get_chat_id_from_user()
+    print("="*60)
+    print("Rubika Bot – Chat ID Detector & Test Sender")
+    print("="*60)
+
+    # Step 1: Get chat_id from an incoming message
+    chat_id = get_chat_id_from_update(limit=10, timeout_seconds=60)
     if not chat_id:
-        print("Cannot proceed without chat_id.")
+        print("Failed to obtain chat_id. Exiting.")
         sys.exit(1)
 
-    # Step 2: Send a test message
-    test_text = f"Test message at {time.strftime('%Y-%m-%d %H:%M:%S')}"
-    success = send_text_message(chat_id, test_text)
+    # Step 2: Send a test message to that chat_id
+    test_text = f"✅ Test message from your bot at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+    success = send_message(chat_id, test_text)
+
+    # Step 3: Report result
     if success:
-        print("🎉 Bot is working! Use this chat_id in your main script.")
-        print(f"   Hardcode: RUBIKA_USER_ID = '{chat_id}'")
+        print("\n🎉 SUCCESS! The bot can send messages to this chat_id.")
+        print(f"👉 Use this chat_id in your main script: {chat_id}")
     else:
-        print("⚠️ Failed to send message. Check bot token or network.")
+        print("\n❌ Failed to send test message. Check token or network.")
 
 if __name__ == "__main__":
     main()
