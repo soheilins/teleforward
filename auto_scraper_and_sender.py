@@ -1,44 +1,31 @@
 #!/usr/bin/env python3
 import sys
 import os
+import time
+import re
+import requests
+import traceback
+from bs4 import BeautifulSoup
+from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.utils import ImageReader
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 sys.stdout.reconfigure(line_buffering=True)
-
-print("=== AUTO SCRAPER STARTING ===", flush=True)
-
-try:
-    import traceback
-    import time
-    import re
-    import requests
-    from bs4 import BeautifulSoup
-    from datetime import datetime
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.lib.utils import ImageReader
-    import arabic_reshaper
-    from bidi.algorithm import get_display
-    print("All modules imported successfully.", flush=True)
-except Exception as e:
-    print(f"IMPORT ERROR: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
 MAX_MESSAGES = 100
-
-# ✅ YOUR CORRECT CHAT_ID (from the test)
 RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
-
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
-if not RUBIKA_TOKEN:
-    print("❌ FATAL: RUBIKA_TOKEN environment variable not set.", flush=True)
-    sys.exit(1)
 
-print(f"Token present: YES, CHANNEL: {CHANNEL}, USER_ID: {RUBIKA_USER_ID}", flush=True)
+if not RUBIKA_TOKEN:
+    print("❌ RUBIKA_TOKEN not set", flush=True)
+    sys.exit(1)
 
 BASE_API = f"https://botapi.rubika.ir/v3/{RUBIKA_TOKEN}"
 SEND_MESSAGE_URL = f"{BASE_API}/sendMessage"
@@ -56,57 +43,78 @@ def reshape_persian_text(text):
     try:
         reshaped = arabic_reshaper.reshape(text)
         return get_display(reshaped)
-    except Exception as e:
-        print(f"  ⚠️ Reshaping error: {e}")
+    except:
         return text
 
 def fetch_messages():
+    """Paginate through t.me channel pages until we have MAX_MESSAGES."""
     print(f"📡 Fetching up to {MAX_MESSAGES} messages from @{CHANNEL}...", flush=True)
-    url = f"https://t.me/s/{CHANNEL}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        print("  ✅ HTTP request successful", flush=True)
-    except Exception as e:
-        print(f"  ❌ HTTP error: {e}", flush=True)
-        raise
+    all_posts = []
+    oldest_id = None
+    page_count = 0
 
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    messages = soup.find_all('div', class_='tgme_widget_message')
-    print(f"  📄 Found {len(messages)} message blocks on page", flush=True)
-    if not messages:
-        return []
+    while len(all_posts) < MAX_MESSAGES:
+        page_count += 1
+        url = f"https://t.me/s/{CHANNEL}"
+        if oldest_id:
+            url += f"?before={oldest_id}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"  ❌ HTTP error on page {page_count}: {e}", flush=True)
+            break
 
-    posts = []
-    for idx, msg in enumerate(messages[:MAX_MESSAGES]):
-        data_post = msg.get('data-post')
-        if not data_post:
-            continue
-        post_id = data_post.split('/')[-1]
-        text_div = msg.find('div', class_='tgme_widget_message_text')
-        text = text_div.get_text(strip=True) if text_div else ''
-        date_div = msg.find('time', class_='datetime')
-        date_str = date_div.get('datetime') if date_div else None
-        img_url = None
-        photo = msg.find('a', class_='tgme_widget_message_photo_wrap')
-        if photo:
-            style = photo.get('style', '')
-            match = re.search(r'background-image:url\(\'(.*?)\'\)', style)
-            if match:
-                img_url = match.group(1)
-        link = f"https://t.me/{data_post}"
-        posts.append({
-            'id': post_id,
-            'text': text,
-            'date': date_str,
-            'img_url': img_url,
-            'link': link
-        })
-        if idx < 3:
-            print(f"  - Post {post_id}: {text[:50]}...", flush=True)
-    print(f"  ✅ Collected {len(posts)} posts", flush=True)
-    return posts
+        soup = BeautifulSoup(resp.text, 'html.parser')
+        messages = soup.find_all('div', class_='tgme_widget_message')
+        if not messages:
+            print(f"  ⚠️ No messages on page {page_count}, stopping.", flush=True)
+            break
+
+        print(f"  📄 Page {page_count}: found {len(messages)} message blocks", flush=True)
+
+        page_posts = []
+        for msg in messages:
+            data_post = msg.get('data-post')
+            if not data_post:
+                continue
+            post_id = data_post.split('/')[-1]
+            text_div = msg.find('div', class_='tgme_widget_message_text')
+            text = text_div.get_text(strip=True) if text_div else ''
+            date_div = msg.find('time', class_='datetime')
+            date_str = date_div.get('datetime') if date_div else None
+            img_url = None
+            photo = msg.find('a', class_='tgme_widget_message_photo_wrap')
+            if photo:
+                style = photo.get('style', '')
+                match = re.search(r'background-image:url\(\'(.*?)\'\)', style)
+                if match:
+                    img_url = match.group(1)
+            link = f"https://t.me/{data_post}"
+            page_posts.append({
+                'id': post_id,
+                'text': text,
+                'date': date_str,
+                'img_url': img_url,
+                'link': link
+            })
+
+        if page_posts:
+            ids_on_page = [int(p['id']) for p in page_posts]
+            oldest_id = min(ids_on_page)
+            all_posts.extend(page_posts)
+            print(f"  ➕ Collected {len(page_posts)} posts (total {len(all_posts)})", flush=True)
+        else:
+            break
+
+        time.sleep(1)
+
+    if len(all_posts) > MAX_MESSAGES:
+        all_posts = all_posts[:MAX_MESSAGES]
+
+    print(f"  ✅ Total collected: {len(all_posts)} posts", flush=True)
+    return all_posts
 
 def download_image(img_url, post_id):
     if not img_url:
@@ -119,17 +127,16 @@ def download_image(img_url, post_id):
     filename = f"{post_id}{ext}"
     filepath = os.path.join(IMAGES_DIR, filename)
     if os.path.exists(filepath):
-        print(f"  🖼️ Image {filename} already cached", flush=True)
         return filepath
     try:
         r = requests.get(img_url, timeout=10)
         if r.status_code == 200:
             with open(filepath, 'wb') as f:
                 f.write(r.content)
-            print(f"  🖼️ Downloaded image {filename}", flush=True)
+            print(f"  🖼️ Downloaded {filename}", flush=True)
             return filepath
     except Exception as e:
-        print(f"  ⚠️ Image download error: {e}", flush=True)
+        print(f"  ⚠️ Image error: {e}", flush=True)
     return None
 
 def generate_pdf(posts, filename="telegram_archive.pdf"):
@@ -201,7 +208,7 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
                     c.drawImage(img, margin, y - draw_height, width=max_width, height=draw_height, preserveAspectRatio=True)
                     y -= draw_height + 5
                 except Exception as e:
-                    print(f"  ⚠️ Could not embed image: {e}", flush=True)
+                    print(f"  ⚠️ Image embed error: {e}", flush=True)
 
             link_text = f"View original: {p['link']}"
             c.setFont('DejaVu', 8)
@@ -228,7 +235,8 @@ def generate_pdf(posts, filename="telegram_archive.pdf"):
         raise
 
 def send_rubika_document(chat_id, file_bytes, filename):
-    print(f"📤 Sending PDF to chat_id {chat_id}...", flush=True)
+    """Simple send – no retries, just one attempt."""
+    print(f"📤 Sending PDF to {chat_id}...", flush=True)
     try:
         req_payload = {"type": "File"}
         resp = requests.post(REQUEST_SEND_FILE_URL, json=req_payload, timeout=10)
@@ -260,28 +268,23 @@ def send_rubika_document(chat_id, file_bytes, filename):
         print("  ✅ PDF successfully sent to Rubika", flush=True)
         return True
     except Exception as e:
-        print(f"  ❌ Send document error: {e}", flush=True)
-        traceback.print_exc()
+        print(f"  ❌ Send error: {e}", flush=True)
         return False
 
 def send_rubika_message(chat_id, text):
     payload = {"chat_id": chat_id, "text": text}
     try:
         requests.post(SEND_MESSAGE_URL, json=payload, timeout=10)
-        print(f"  📨 Sent status message: {text[:50]}", flush=True)
+        print(f"  📨 Sent: {text[:50]}", flush=True)
     except Exception as e:
-        print(f"  ⚠️ Could not send status message: {e}", flush=True)
+        print(f"  ⚠️ Message send error: {e}", flush=True)
 
 def main():
     print("="*60, flush=True)
     print("🤖 AUTO SCRAPER & SENDER STARTED", flush=True)
     print(f"Channel: @{CHANNEL}", flush=True)
-    print(f"Max messages per PDF: {MAX_MESSAGES}", flush=True)
-    print(f"Target Rubika chat_id: {RUBIKA_USER_ID}", flush=True)
-    print(f"Token present: {'YES' if RUBIKA_TOKEN else 'NO'}", flush=True)
-    if not RUBIKA_TOKEN:
-        print("❌ Missing RUBIKA_TOKEN. Exiting.", flush=True)
-        sys.exit(1)
+    print(f"Max messages: {MAX_MESSAGES}", flush=True)
+    print(f"Target chat_id: {RUBIKA_USER_ID}", flush=True)
     print("="*60, flush=True)
 
     start_time = time.time()
@@ -292,44 +295,36 @@ def main():
         iteration += 1
         loop_start = datetime.now()
         print(f"\n{'='*60}", flush=True)
-        print(f"🔄 ITERATION {iteration} at {loop_start.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
-        print(f"   Runtime so far: {(time.time() - start_time)/3600:.2f} hours", flush=True)
+        print(f"🔄 ITERATION {iteration} at {loop_start.strftime('%H:%M:%S')}", flush=True)
         print(f"{'='*60}", flush=True)
 
         try:
             posts = fetch_messages()
             if not posts:
-                print("⚠️ No posts retrieved. Skipping this iteration.", flush=True)
+                print("⚠️ No posts retrieved.", flush=True)
             else:
-                print("🖼️ Downloading images...", flush=True)
                 for p in posts:
                     p['img_local'] = download_image(p['img_url'], p['id'])
-
                 pdf_file = generate_pdf(posts, "telegram_archive.pdf")
                 with open(pdf_file, 'rb') as f:
                     pdf_bytes = f.read()
                 success = send_rubika_document(RUBIKA_USER_ID, pdf_bytes, "telegram_archive.pdf")
                 if success:
-                    send_rubika_message(RUBIKA_USER_ID, f"✅ New PDF sent ({len(posts)} posts)")
+                    send_rubika_message(RUBIKA_USER_ID, f"✅ PDF sent ({len(posts)} posts)")
                 else:
-                    send_rubika_message(RUBIKA_USER_ID, "❌ Failed to send PDF")
+                    send_rubika_message(RUBIKA_USER_ID, "❌ PDF send failed")
         except Exception as e:
-            print("💥 CRITICAL ERROR IN ITERATION:", flush=True)
+            print("💥 ERROR:", flush=True)
             traceback.print_exc()
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
         elapsed = time.time() - loop_start.timestamp()
-        # Wait 30 seconds between iterations
-        sleep_time = max(0, 60 - elapsed)
+        sleep_time = max(0, 10 - elapsed)   # 10 seconds interval
         if sleep_time > 0:
-            print(f"⏳ Waiting {sleep_time:.1f} seconds until next iteration...", flush=True)
+            print(f"⏳ Waiting {sleep_time:.1f}s", flush=True)
             time.sleep(sleep_time)
-        else:
-            print("⚠️ Iteration took longer than 30 seconds, starting next immediately.", flush=True)
 
-    print("\n" + "="*60, flush=True)
-    print("🏁 6-hour runtime completed. Exiting gracefully.", flush=True)
-    print("="*60, flush=True)
+    print("\n🏁 6-hour runtime completed.\n", flush=True)
 
 if __name__ == "__main__":
     main()
