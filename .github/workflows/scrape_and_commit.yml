@@ -19,7 +19,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 fpdf2 Pillow
+        run: pip install requests beautifulsoup4 fpdf2 Pillow arabic-reshaper python-bidi
 
       - name: Run scraper (PDF generation)
         env:
