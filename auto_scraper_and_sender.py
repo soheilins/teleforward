@@ -20,6 +20,7 @@ sys.stdout.reconfigure(line_buffering=True)
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
 MAX_MESSAGES = 100
+SORT_OLDEST_FIRST = True               # True = oldest message first in PDF
 RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
 
@@ -47,7 +48,6 @@ def reshape_persian_text(text):
         return text
 
 def fetch_messages():
-    """Paginate through t.me channel pages until we have MAX_MESSAGES."""
     print(f"📡 Fetching up to {MAX_MESSAGES} messages from @{CHANNEL}...", flush=True)
     all_posts = []
     oldest_id = None
@@ -63,23 +63,21 @@ def fetch_messages():
             resp = requests.get(url, headers=headers, timeout=15)
             resp.raise_for_status()
         except Exception as e:
-            print(f"  ❌ HTTP error on page {page_count}: {e}", flush=True)
+            print(f"  ❌ HTTP error: {e}", flush=True)
             break
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         messages = soup.find_all('div', class_='tgme_widget_message')
         if not messages:
-            print(f"  ⚠️ No messages on page {page_count}, stopping.", flush=True)
             break
 
-        print(f"  📄 Page {page_count}: found {len(messages)} message blocks", flush=True)
-
+        print(f"  📄 Page {page_count}: {len(messages)} messages", flush=True)
         page_posts = []
         for msg in messages:
             data_post = msg.get('data-post')
             if not data_post:
                 continue
-            post_id = data_post.split('/')[-1]
+            post_id = int(data_post.split('/')[-1])
             text_div = msg.find('div', class_='tgme_widget_message_text')
             text = text_div.get_text(strip=True) if text_div else ''
             date_div = msg.find('time', class_='datetime')
@@ -101,19 +99,21 @@ def fetch_messages():
             })
 
         if page_posts:
-            ids_on_page = [int(p['id']) for p in page_posts]
-            oldest_id = min(ids_on_page)
+            oldest_id = min(p['id'] for p in page_posts)
             all_posts.extend(page_posts)
-            print(f"  ➕ Collected {len(page_posts)} posts (total {len(all_posts)})", flush=True)
-        else:
-            break
-
+            print(f"  ➕ Added {len(page_posts)} (total {len(all_posts)})", flush=True)
         time.sleep(1)
 
     if len(all_posts) > MAX_MESSAGES:
         all_posts = all_posts[:MAX_MESSAGES]
 
-    print(f"  ✅ Total collected: {len(all_posts)} posts", flush=True)
+    if SORT_OLDEST_FIRST:
+        all_posts.sort(key=lambda x: x['id'])
+        print("  🔄 Sorted oldest first", flush=True)
+    else:
+        print("  🔄 Keeping newest first", flush=True)
+
+    print(f"  ✅ Final: {len(all_posts)} posts", flush=True)
     return all_posts
 
 def download_image(img_url, post_id):
@@ -141,101 +141,103 @@ def download_image(img_url, post_id):
 
 def generate_pdf(posts, filename="telegram_archive.pdf"):
     print(f"📄 Generating PDF with {len(posts)} posts...", flush=True)
-    try:
-        c = canvas.Canvas(filename, pagesize=A4)
-        width, height = A4
-        pdfmetrics.registerFont(TTFont('DejaVu', SYSTEM_FONT_PATH))
-        c.setFont('DejaVu', 10)
-        margin = 20
-        y = height - margin
-        line_height = 14
+    c = canvas.Canvas(filename, pagesize=A4)
+    width, height = A4
+    pdfmetrics.registerFont(TTFont('DejaVu', SYSTEM_FONT_PATH))
+    margin = 20
+    line_height = 14
+    text_width = width - 2*margin
 
-        c.setFont('DejaVu', 16)
-        title = reshape_persian_text(f"Telegram Channel: @{CHANNEL}")
-        c.drawString(margin, y, title)
-        y -= line_height + 5
-        c.setFont('DejaVu', 10)
-        date_str = reshape_persian_text(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        c.drawString(margin, y, date_str)
-        y -= line_height * 2
-
-        for p in posts:
-            date_text = p.get('date') or "Date unknown"
-            date_text = reshape_persian_text(date_text)
+    def draw_paragraph(text, font_size, is_date=False):
+        nonlocal y
+        if is_date:
             c.setFont('DejaVu', 9)
             c.setFillColorRGB(0.4, 0.4, 0.4)
-            c.drawString(margin, y, date_text)
-            y -= line_height
+        else:
+            c.setFont('DejaVu', font_size)
             c.setFillColorRGB(0, 0, 0)
+        if not text:
+            return
+        # Use multi_cell for automatic line breaking
+        c.multi_cell(text_width, line_height, text, border=0, align='L')
+        y = c.getY()  # update current vertical position
+        c.setY(y)
 
+    y = height - margin
+    # Title
+    c.setFont('DejaVu', 16)
+    title = reshape_persian_text(f"Telegram Channel: @{CHANNEL}")
+    c.drawString(margin, y, title)
+    y -= line_height + 5
+    c.setFont('DejaVu', 10)
+    date_str = reshape_persian_text(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    c.drawString(margin, y, date_str)
+    y -= line_height * 2
+    c.setY(y)
+
+    for p in posts:
+        # Date
+        date_text = p.get('date') or "Date unknown"
+        date_text = reshape_persian_text(date_text)
+        c.setFont('DejaVu', 9)
+        c.setFillColorRGB(0.4, 0.4, 0.4)
+        c.drawString(margin, y, date_text)
+        y -= line_height
+        c.setY(y)
+
+        # Message text
+        text_content = p.get('text', '')
+        if text_content:
+            reshaped = reshape_persian_text(text_content)
             c.setFont('DejaVu', 11)
-            text_content = p.get('text', '')
-            if text_content:
-                reshaped = reshape_persian_text(text_content)
-                words = reshaped.split()
-                line = ""
-                for word in words:
-                    test_line = line + (" " + word if line else word)
-                    if c.stringWidth(test_line, 'DejaVu', 11) < width - 2*margin:
-                        line = test_line
-                    else:
-                        if y - line_height < margin:
-                            c.showPage()
-                            y = height - margin
-                            c.setFont('DejaVu', 11)
-                        c.drawString(margin, y, line)
-                        y -= line_height
-                        line = word
-                if line:
-                    if y - line_height < margin:
-                        c.showPage()
-                        y = height - margin
-                        c.setFont('DejaVu', 11)
-                    c.drawString(margin, y, line)
-                    y -= line_height
-            y -= 4
-
-            if p.get('img_local'):
-                try:
-                    img = ImageReader(p['img_local'])
-                    img_width, img_height = img.getSize()
-                    max_width = width - 2*margin
-                    scale = max_width / img_width
-                    draw_height = img_height * scale
-                    if y - draw_height < margin:
-                        c.showPage()
-                        y = height - margin
-                    c.drawImage(img, margin, y - draw_height, width=max_width, height=draw_height, preserveAspectRatio=True)
-                    y -= draw_height + 5
-                except Exception as e:
-                    print(f"  ⚠️ Image embed error: {e}", flush=True)
-
-            link_text = f"View original: {p['link']}"
-            c.setFont('DejaVu', 8)
-            c.setFillColorRGB(0, 0, 0.8)
-            if y - line_height < margin:
-                c.showPage()
-                y = height - margin
-                c.setFont('DejaVu', 8)
-            c.drawString(margin, y, link_text)
-            y -= line_height + 8
             c.setFillColorRGB(0, 0, 0)
+            c.multi_cell(text_width, line_height, reshaped, border=0, align='L')
+            y = c.getY()
+            c.setY(y)
+            y -= 4
+            c.setY(y)
 
-            if y < margin:
-                c.showPage()
-                y = height - margin
-                c.setFont('DejaVu', 11)
+        # Image
+        if p.get('img_local'):
+            try:
+                img = ImageReader(p['img_local'])
+                img_width, img_height = img.getSize()
+                max_width = text_width
+                scale = max_width / img_width
+                draw_height = img_height * scale
+                if y - draw_height < margin:
+                    c.showPage()
+                    y = height - margin
+                    c.setY(y)
+                c.drawImage(img, margin, y - draw_height, width=max_width, height=draw_height, preserveAspectRatio=True)
+                y -= draw_height + 5
+                c.setY(y)
+            except Exception as e:
+                print(f"  ⚠️ Image embed error: {e}", flush=True)
 
-        c.save()
-        print(f"  ✅ PDF saved: {filename}", flush=True)
-        return filename
-    except Exception as e:
-        print(f"  ❌ PDF generation failed: {e}", flush=True)
-        traceback.print_exc()
-        raise
+        # Link
+        link_text = f"View original: {p['link']}"
+        c.setFont('DejaVu', 8)
+        c.setFillColorRGB(0, 0, 0.8)
+        if y - line_height < margin:
+            c.showPage()
+            y = height - margin
+            c.setY(y)
+        c.drawString(margin, y, link_text)
+        y -= line_height + 8
+        c.setY(y)
+
+        # New page if needed
+        if y < margin:
+            c.showPage()
+            y = height - margin
+            c.setY(y)
+
+    c.save()
+    print(f"  ✅ PDF saved: {filename}", flush=True)
+    return filename
 
 def send_rubika_document(chat_id, file_bytes, filename):
-    """Simple send – no retries, just one attempt."""
     print(f"📤 Sending PDF to {chat_id}...", flush=True)
     try:
         req_payload = {"type": "File"}
