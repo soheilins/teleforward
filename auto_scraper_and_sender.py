@@ -19,7 +19,7 @@ sys.stdout.reconfigure(line_buffering=True)
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
-MAX_MESSAGES = 100
+MAX_MESSAGES = 50
 SORT_OLDEST_FIRST = True               # True = oldest first
 RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
