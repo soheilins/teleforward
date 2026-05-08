@@ -339,7 +339,7 @@ def main():
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 10 - elapsed)
+        sleep_time = max(0, 600 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f}s", flush=True)
             time.sleep(sleep_time)
