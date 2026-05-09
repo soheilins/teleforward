@@ -19,7 +19,7 @@ sys.stdout.reconfigure(line_buffering=True)
 
 # ========== CONFIGURATION ==========
 CHANNEL = os.getenv('CHANNEL', 'IranintlTV')
-MAX_MESSAGES = 40
+MAX_MESSAGES = 200
 SORT_OLDEST_FIRST = True               # True = oldest first
 RUBIKA_USER_ID = "b0JWE2R0bQW0eae5690fa217ebebf122"
 RUBIKA_TOKEN = os.environ.get("RUBIKA_TOKEN", "")
@@ -339,7 +339,7 @@ def main():
             send_rubika_message(RUBIKA_USER_ID, f"⚠️ Scraper error: {str(e)[:100]}")
 
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 600 - elapsed)
+        sleep_time = max(0, 3600 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.1f}s", flush=True)
             time.sleep(sleep_time)
