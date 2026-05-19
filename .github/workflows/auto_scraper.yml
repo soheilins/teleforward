@@ -1,4 +1,4 @@
-name: Auto Scraper & Sender
+name: Auto Scraper & Sender (No Images, No PDF)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -20,10 +28,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests beautifulsoup4 reportlab Pillow arabic-reshaper python-bidi
+          pip install requests beautifulsoup4 arabic-reshaper python-bidi
 
-      - name: Run auto scraper and sender
+      - name: Run text scraper and sender
         env:
           RUBIKA_TOKEN: ${{ secrets.RUBIKA_TOKEN }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           CHANNEL: IranintlTV
-        run: python -u auto_scraper_and_sender.py
+        run: python -u text_scraper_sender.py
