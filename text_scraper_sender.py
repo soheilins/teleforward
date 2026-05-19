@@ -183,7 +183,7 @@ def main():
             print("📭 No new messages this round.", flush=True)
 
         elapsed = time.time() - loop_start.timestamp()
-        sleep_time = max(0, 3600 - elapsed)
+        sleep_time = max(0, 300 - elapsed)
         if sleep_time > 0:
             print(f"⏳ Waiting {sleep_time:.0f} seconds until next iteration", flush=True)
             time.sleep(sleep_time)
