@@ -5,7 +5,10 @@ on:
   schedule:
     - cron: '0 */6 * * *'
 
-# Add this block to grant write permissions
+concurrency:
+  group: auto-scraper
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
