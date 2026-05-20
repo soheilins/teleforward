@@ -143,17 +143,18 @@ def fetch_new_messages(last_known_id=None):
             page_messages.append({'id': post_id, 'text': text})
             print(f"   ✅ Added {post_id}")
 
-        if stop:
-            break
-
+        # EXTEND ALL_MESSAGES BEFORE BREAKING (FIX)
         if page_messages:
-            # Sort ascending for pagination (oldest_id for 'before' parameter)
             page_messages.sort(key=lambda x: x['id'])
             oldest_id = page_messages[0]['id']
             all_messages.extend(page_messages)
             print(f"   Page {page}: added {len(page_messages)} messages, next before={oldest_id}")
         else:
             print(f"   Page {page}: no new text messages, stopping.")
+            if not stop:
+                break
+
+        if stop:
             break
 
         time.sleep(1)
@@ -203,7 +204,7 @@ def main():
         for msg in new_messages:
             msg_id = msg['id']
             original_text = msg['text']
-            # Optional: reshape Persian text for correct display (if needed)
+            # Optionally reshape Persian text (uncomment if needed)
             # original_text = reshape_persian_text(original_text)
             coded = encode_message(original_text, ENCRYPTION_KEY)
             send_rubika_message(RUBIKA_USER_ID, coded)
