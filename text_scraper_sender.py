@@ -88,8 +88,10 @@ def save_sent_ids(sent_ids):
     with open(SENT_IDS_FILE, 'w') as f:
         json.dump({"sent_ids": list(sent_ids)}, f, indent=2)
 
+# ========== MODIFIED WITH FULL DEBUG LOGGING ==========
 def fetch_new_messages(last_known_id=None):
     print(f"📡 Fetching messages from @{CHANNEL}...", flush=True)
+    print(f"   last_known_id = {last_known_id}", flush=True)
     all_messages = []
     oldest_id = None
     page = 0
@@ -99,50 +101,71 @@ def fetch_new_messages(last_known_id=None):
         url = f"https://t.me/s/{CHANNEL}"
         if oldest_id:
             url += f"?before={oldest_id}"
+        print(f"\n🌐 Page {page}: Fetching URL: {url}", flush=True)
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
             resp = requests.get(url, headers=headers, timeout=30)
             resp.raise_for_status()
+            print(f"   ✓ HTTP {resp.status_code}, content length {len(resp.text)}", flush=True)
         except Exception as e:
             print(f"  ❌ HTTP error: {e}", flush=True)
             break
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         messages = soup.find_all('div', class_='tgme_widget_message')
+        print(f"   📦 Found {len(messages)} divs with class 'tgme_widget_message'", flush=True)
+
         if not messages:
+            print("   ⚠️ No messages found, stopping pagination.", flush=True)
             break
 
         page_messages = []
-        for msg in messages:
+        # Iterate in the order they appear (newest to oldest)
+        for idx, msg in enumerate(messages):
             data_post = msg.get('data-post')
             if not data_post:
+                print(f"   [{idx}] No data-post attribute, skipping", flush=True)
                 continue
             post_id = int(data_post.split('/')[-1])
-            if last_known_id and post_id <= last_known_id:
+            print(f"   [{idx}] Message ID: {post_id}", flush=True)
+
+            # Check if we've reached already sent messages
+            if last_known_id is not None and post_id <= last_known_id:
+                print(f"   🛑 STOP: {post_id} <= {last_known_id}. No newer messages beyond this point.", flush=True)
+                # Return whatever we have collected so far (from earlier on this page)
                 return all_messages
+
             text_div = msg.find('div', class_='tgme_widget_message_text')
             text = text_div.get_text(strip=True) if text_div else ''
             if not text:
+                print(f"   [{idx}] No text content, skipping", flush=True)
                 continue
+
             link = f"https://t.me/{data_post}"
             page_messages.append({'id': post_id, 'text': text, 'link': link})
+            print(f"   [{idx}] Added message {post_id} (has text)", flush=True)
 
         if page_messages:
+            # Sort ascending within the page? Original code did, we keep it.
             page_messages.sort(key=lambda x: x['id'])
             oldest_id = min(m['id'] for m in page_messages)
             all_messages.extend(page_messages)
-            print(f"  📄 Page {page}: +{len(page_messages)} messages (total {len(all_messages)})", flush=True)
+            print(f"   📄 Page {page}: added {len(page_messages)} messages (total {len(all_messages)}). Next 'before' param = {oldest_id}", flush=True)
         else:
+            print(f"   📄 Page {page}: no messages with text, stopping.", flush=True)
             break
+
         time.sleep(1)
 
     if len(all_messages) > MAX_MESSAGES_PER_RUN:
+        print(f"⚠️ Truncating to first {MAX_MESSAGES_PER_RUN} messages (original {len(all_messages)})", flush=True)
         all_messages = all_messages[:MAX_MESSAGES_PER_RUN]
+    print(f"🏁 Returning {len(all_messages)} messages.\n", flush=True)
     return all_messages
 
 def main():
     print("="*60, flush=True)
-    print("🤖 TEXT SCRAPER & ENCODER STARTED", flush=True)
+    print("🤖 TEXT SCRAPER & ENCODER STARTED (DEBUG MODE)", flush=True)
     print(f"Channel: @{CHANNEL}", flush=True)
     print(f"Target Rubika ID: {RUBIKA_USER_ID}", flush=True)
     print("="*60, flush=True)
@@ -161,19 +184,24 @@ def main():
         git_pull()
         sent_ids = load_sent_ids()
         print(f"📋 Already sent messages: {len(sent_ids)}", flush=True)
+        if sent_ids:
+            print(f"   Highest sent ID: {max(sent_ids)}", flush=True)
 
         max_sent_id = max(sent_ids) if sent_ids else 0
         new_messages = fetch_new_messages(max_sent_id)
         print(f"🆕 Found {len(new_messages)} new text messages", flush=True)
 
-        # 🔽 SORT OLDEST FIRST
-        new_messages.sort(key=lambda x: x['id'])
+        # Sort ascending (oldest first) before sending
+        if new_messages:
+            new_messages.sort(key=lambda x: x['id'])
+            print(f"   Sorted IDs: {[m['id'] for m in new_messages]}", flush=True)
 
         newly_sent = 0
         for msg in new_messages:
             msg_id = msg['id']
             original_text = msg['text']
             coded = encode_message(original_text, ENCRYPTION_KEY)
+            print(f"  → Sending message ID {msg_id} (oldest-first order)", flush=True)
             send_rubika_message(RUBIKA_USER_ID, coded)
             sent_ids.add(msg_id)
             newly_sent += 1
