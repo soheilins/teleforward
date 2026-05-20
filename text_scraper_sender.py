@@ -166,6 +166,9 @@ def main():
         new_messages = fetch_new_messages(max_sent_id)
         print(f"🆕 Found {len(new_messages)} new text messages", flush=True)
 
+        # 🔽 SORT OLDEST FIRST
+        new_messages.sort(key=lambda x: x['id'])
+
         newly_sent = 0
         for msg in new_messages:
             msg_id = msg['id']
